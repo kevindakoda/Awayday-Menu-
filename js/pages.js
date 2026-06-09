@@ -652,8 +652,11 @@
       const vendorOpts = P.VENDORS.map((v) => `<option>${esc(v.vendorName)}</option>`).join("");
       const catOpts = Object.keys(P.SUBCATEGORIES).map((c) => `<option>${esc(c)}</option>`).join("");
       const statusOpts = P.STATUSES.map((s) => `<option>${esc(s)}</option>`).join("");
+      const brandOpts = `<option value="">➕ New brand…</option>` +
+        P.SHOPS.map((s) => `<option value="${esc(s.code)}">${esc(s.shopName)} (${esc(s.code)})</option>`).join("");
+      const regionListOpts = P.REGIONS.map((r) => `<option value="${esc(r)}">`).join("");
       return `
-      <div class="page-head"><h1>Admin Console</h1><p>Upload pricing data, manage taxonomy and vendors, edit SKUs, and import/export CSV. Built to support future AI auto-categorization.</p></div>
+      <div class="page-head"><h1>Admin Console</h1><p>Upload pricing data, manage taxonomy, brands and vendors, edit SKUs, and import/export CSV. Built to support future AI auto-categorization.</p></div>
       <div class="notice" style="margin-bottom:18px">ℹ️ This is a working front-end mockup. Uploaded/edited data updates the in-memory model for this session and can be exported to CSV.</div>
 
       <div class="grid cols-2">
@@ -706,6 +709,16 @@
           <div class="field"><label>Contract status</label><select id="newVendorStatus"><option>Preferred</option><option>National Contract</option><option>In Negotiation</option></select></div>
           <button class="btn btn-outline btn-sm" id="addVendor">Add vendor</button>
           <div id="vendorResult" class="cell-sub" style="margin-top:8px"></div>
+        </div>
+        <div class="card"><h3 class="card-title">🏨 Add / Edit Brand</h3>
+          <div class="field"><label>Brand to edit</label><select id="brandSelect">${brandOpts}</select></div>
+          <div class="grid cols-2" style="gap:12px">
+            <div class="field"><label>Brand name</label><input type="text" id="brandName" placeholder="e.g. Seaside Grand Hotel"></div>
+            <div class="field"><label>Code</label><input type="text" id="brandCode" placeholder="e.g. Shop F"></div>
+          </div>
+          <div class="field"><label>Region</label><input type="text" list="regionList" id="brandRegion" placeholder="e.g. Southeast"><datalist id="regionList">${regionListOpts}</datalist></div>
+          <button class="btn btn-primary btn-sm" id="saveBrand">Save brand</button>
+          <div id="brandResult" class="cell-sub" style="margin-top:8px"></div>
         </div>
         <div class="card"><h3 class="card-title">📥 Import / Export</h3>
           <p class="text-muted" style="font-size:12.5px">Bulk import overwrites matching SKU IDs and appends new ones. Export produces a CSV using the standard template.</p>
@@ -777,6 +790,29 @@
         const v = document.getElementById("newVendor").value.trim();
         if (v) { P.VENDORS.push({ vendorName: v, categories: [], contractStatus: document.getElementById("newVendorStatus").value, pricingStatus: "Proposed", notes: "Added via admin console." });
           document.getElementById("vendorResult").textContent = `Added ${v}. Vendors: ${P.VENDORS.length}.`; }
+      });
+
+      // ---- Brand (shop / property) create + edit ----
+      const brandSel = document.getElementById("brandSelect");
+      const bName = document.getElementById("brandName"), bCode = document.getElementById("brandCode"), bRegion = document.getElementById("brandRegion");
+      const fillBrandForm = () => {
+        const b = P.SHOPS.find((s) => s.code === brandSel.value);
+        bName.value = b ? b.shopName : "";
+        bCode.value = b ? b.code : P.nextBrandCode();
+        bRegion.value = b ? b.region : "";
+      };
+      const rebuildBrandOptions = (selectCode) => {
+        brandSel.innerHTML = `<option value="">➕ New brand…</option>` +
+          P.SHOPS.map((s) => `<option value="${esc(s.code)}">${esc(s.shopName)} (${esc(s.code)})</option>`).join("");
+        brandSel.value = selectCode || "";
+      };
+      if (brandSel) { brandSel.addEventListener("change", fillBrandForm); fillBrandForm(); }
+      dl("saveBrand", () => {
+        const res = P.upsertBrand({ originalCode: brandSel.value, shopName: bName.value, code: bCode.value, region: bRegion.value });
+        const el = document.getElementById("brandResult");
+        if (!res.ok) { el.innerHTML = `<span class="text-red">${esc(res.error)}</span>`; return; }
+        rebuildBrandOptions(res.brand.code);
+        el.innerHTML = `<div class="notice" style="background:var(--green-bg);border-color:#bfe6cd;color:var(--green-700)">✅ Brand <b>${esc(res.brand.shopName)}</b> (${esc(res.brand.code)}) ${res.mode}. Brands: ${P.SHOPS.length}.</div>`;
       });
     },
   };

@@ -336,6 +336,62 @@
     });
   }
 
+  // Create a new brand (shop/property) or update an existing one. When an
+  // existing brand is renamed / re-coded / moved region, the change is
+  // propagated to every SKU that references it so roll-ups stay consistent.
+  function upsertBrand({ originalCode, shopName, code, region } = {}) {
+    shopName = (shopName || "").trim();
+    code = (code || "").trim();
+    region = (region || "").trim();
+    if (!shopName) return { ok: false, error: "Brand name is required." };
+    if (!code) return { ok: false, error: "Brand code is required." };
+
+    // Register a brand-new region on the fly so it appears in filters.
+    if (region && !REGIONS.includes(region)) REGIONS.push(region);
+
+    const existing = originalCode ? SHOPS.find((s) => s.code === originalCode) : null;
+
+    if (existing) {
+      if (code !== existing.code && SHOPS.some((s) => s.code === code)) {
+        return { ok: false, error: 'Code "' + code + '" is already used by another brand.' };
+      }
+      if (SHOPS.some((s) => s !== existing && s.shopName.toLowerCase() === shopName.toLowerCase())) {
+        return { ok: false, error: 'A brand named "' + shopName + '" already exists.' };
+      }
+      const prevCode = existing.code;
+      existing.shopName = shopName;
+      existing.code = code;
+      existing.region = region || existing.region;
+      SKUS.forEach((s) => {
+        if (s.shopCode === prevCode) {
+          s.shopCode = code;
+          s.shop = shopName;
+          if (region) s.region = region;
+        }
+      });
+      return { ok: true, mode: "updated", brand: existing };
+    }
+
+    if (SHOPS.some((s) => s.code === code)) {
+      return { ok: false, error: 'Code "' + code + '" is already in use.' };
+    }
+    if (SHOPS.some((s) => s.shopName.toLowerCase() === shopName.toLowerCase())) {
+      return { ok: false, error: 'A brand named "' + shopName + '" already exists.' };
+    }
+    const brand = { shopName, code, region: region || REGIONS[0] };
+    SHOPS.push(brand);
+    return { ok: true, mode: "created", brand };
+  }
+
+  // Suggest the next unused "Shop X" code for a new brand.
+  function nextBrandCode() {
+    for (let i = 0; i < 26; i++) {
+      const candidate = "Shop " + String.fromCharCode(65 + i);
+      if (!SHOPS.some((s) => s.code === candidate)) return candidate;
+    }
+    return "Shop " + (SHOPS.length + 1);
+  }
+
   function vendorsView() {
     return VENDORS.map((v) => {
       const rows = SKUS.filter((s) => s.recommendedVendor === v.vendorName);
@@ -634,6 +690,8 @@
     categories,
     subcategoriesFor,
     shops,
+    upsertBrand,
+    nextBrandCode,
     vendorsView,
     regions,
     opportunities,
