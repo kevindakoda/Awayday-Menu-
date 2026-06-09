@@ -61,7 +61,8 @@
         <span class="ico">${n.icon}</span>${n.label}</a>`;
     }).join("");
 
-    const roleOpts = Object.keys(P.ROLES).map((r) => `<option ${r === State.role ? "selected" : ""}>${r}</option>`).join("");
+    const user = window.CURRENT_USER || { name: "—", email: "", role: State.role };
+    const initials = (user.name || user.email || "U").split(" ").map((s) => s[0]).join("").slice(0, 2).toUpperCase();
     return `
       <div class="brand">
         <div class="logo">📈</div>
@@ -72,9 +73,11 @@
         ${links}
       </nav>
       <div class="role-box">
-        <label>Viewing as</label>
-        <select id="roleSelect">${roleOpts}</select>
-        <div class="role-desc">${P.ROLES[State.role].desc}</div>
+        <label>Signed in as</label>
+        <div class="role-user"><span class="role-avatar">${initials}</span>
+          <div><div class="role-name">${user.name || user.email}</div>
+          <div class="role-desc" style="margin:0">${State.role}</div></div></div>
+        <button id="logoutBtn" class="btn btn-outline btn-sm" style="width:100%;justify-content:center;margin-top:10px">Sign out</button>
       </div>`;
   }
 
@@ -85,7 +88,7 @@
       <div class="crumb">Procurement &nbsp;/&nbsp; <b>${page.crumb}</b></div>
       <div class="global-search"><span class="si">🔍</span><input type="text" id="globalSearch" placeholder="Search SKUs, vendors, categories…"></div>
       <div class="badge green" title="Total savings opportunity">▼ ${P.fmt.money(totals.savingsOpportunity)} savings</div>
-      <div class="user-chip"><div class="avatar">PA</div></div>`;
+      <div class="user-chip"><div class="avatar">${(window.CURRENT_USER && (window.CURRENT_USER.name || window.CURRENT_USER.email) || "U").split(" ").map((s) => s[0]).join("").slice(0, 2).toUpperCase()}</div></div>`;
   }
 
   function renderCurrent() {
@@ -107,15 +110,9 @@
   }
 
   function wireShell() {
-    const roleSel = document.getElementById("roleSelect");
-    if (roleSel) roleSel.addEventListener("change", (e) => {
-      State.role = e.target.value;
-      if (!allowed(current.id)) {
-        // jump to first allowed page
-        const first = NAV.find((n) => allowed(n.id));
-        if (first) { location.hash = first.route; return; }
-      }
-      renderCurrent();
+    const logout = document.getElementById("logoutBtn");
+    if (logout) logout.addEventListener("click", () => {
+      if (window.Auth && window.Auth.logout) window.Auth.logout();
     });
     const gs = document.getElementById("globalSearch");
     if (gs) gs.addEventListener("keyup", (e) => {
@@ -126,10 +123,14 @@
     });
   }
 
-  window.App = { renderCurrent };
-  window.addEventListener("hashchange", renderCurrent);
-  window.addEventListener("DOMContentLoaded", () => {
+  // The app only renders once auth.js confirms a session and calls start().
+  let started = false;
+  function start() {
+    started = true;
     if (!location.hash) location.hash = "#/dashboard";
     renderCurrent();
-  });
+  }
+
+  window.App = { renderCurrent, start };
+  window.addEventListener("hashchange", () => { if (started) renderCurrent(); });
 })();
