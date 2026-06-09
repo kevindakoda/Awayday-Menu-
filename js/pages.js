@@ -83,7 +83,7 @@
       <div class="grid cols-4" style="margin-top:16px">${kpis2.join("")}</div>
 
       <div class="section-title">Category Breakdown</div>
-      <div class="grid cols-5">${cats.map(U.categoryTile).join("")}</div>
+      <div class="grid cols-4">${cats.map(U.categoryTile).join("")}</div>
 
       <div class="grid cols-2" style="margin-top:22px">
         <div class="card"><h3 class="card-title">📊 Savings by Category</h3>${catBars}</div>
@@ -191,7 +191,7 @@
       const rows = filteredSkus();
       const allSubs = Array.from(new Set(P.SKUS.filter((s) => !f.category || s.category === f.category).map((s) => s.subcategory))).sort();
       const opt = (val, label, sel) => `<option value="${esc(val)}" ${val === sel ? "selected" : ""}>${esc(label)}</option>`;
-      const catOpts = ["", "Linens", "Disposables", "Supplies", "Rentals", "Other"].map((c) => opt(c, c || "All categories", f.category)).join("");
+      const catOpts = [""].concat(P.CATEGORY_ORDER).map((c) => opt(c, c || "All categories", f.category)).join("");
       const subOpts = `<option value="">All subcategories</option>` + allSubs.map((s) => opt(s, s, f.subcategory)).join("");
       const shopOpts = `<option value="">All shops</option>` + P.SHOPS.map((s) => opt(s.code, s.shopName, f.shop)).join("");
       const vendorList = Array.from(new Set(P.SKUS.flatMap((s) => [s.currentVendor, s.recommendedVendor]))).sort();
@@ -858,6 +858,93 @@
       const input = document.getElementById("aiInput"); if (input) input.addEventListener("keyup", (e) => { if (e.key === "Enter") run(); });
       document.querySelectorAll("tr[data-ex]").forEach((tr) => tr.addEventListener("click", () => { document.getElementById("aiInput").value = tr.getAttribute("data-ex"); run(); }));
       run();
+    },
+  };
+
+  /* ============================== SECURITY ============================== */
+  PAGES.security = {
+    title: "Security & Access",
+    crumb: "Security & Access",
+    render() {
+      const m = P.securityMetrics();
+      const resultBadge = (r) => {
+        const cls = r === "Success" ? "green" : r === "Failed" ? "amber" : r === "Blocked" ? "red" : "gray";
+        return `<span class="badge ${cls}">${esc(r)}</span>`;
+      };
+      const mfaBadge = (txt) => {
+        const cls = txt === "Passed" ? "green" : txt === "Failed" ? "red" : txt === "Not enrolled" ? "amber" : "gray";
+        return `<span class="badge ${cls}">${esc(txt)}</span>`;
+      };
+
+      const roleKeys = Object.keys(m.byRole).sort((a, b) => m.byRole[b] - m.byRole[a]);
+      const maxRole = Math.max(...roleKeys.map((k) => m.byRole[k]));
+      const roleBars = roleKeys.map((k) => U.hbar(k, m.byRole[k], maxRole, fmt.num(m.byRole[k]))).join("");
+
+      const eventRows = m.events.map((e) => `<tr>
+        <td class="cell-sub">${esc(e.time)}</td>
+        <td><span class="cell-strong">${esc(e.user)}</span></td>
+        <td>${esc(e.role)}</td>
+        <td class="mono">${esc(e.ip)}</td>
+        <td>${esc(e.location)}</td>
+        <td class="cell-sub">${esc(e.device)}</td>
+        <td>${mfaBadge(e.mfa)}</td>
+        <td>${resultBadge(e.result)}</td>
+      </tr>`).join("");
+
+      const userRows = m.users.map((u) => `<tr>
+        <td><span class="cell-strong">${esc(u.name)}</span><div class="cell-sub">${esc(u.email)}</div></td>
+        <td><span class="badge navy">${esc(u.role)}</span></td>
+        <td>${esc(u.shop)}<div class="cell-sub">${esc(u.region)}</div></td>
+        <td>${u.mfa ? '<span class="badge green">MFA on</span>' : '<span class="badge amber">No MFA</span>'}</td>
+        <td>${u.status === "Active" ? '<span class="badge green"><span class="dot"></span>Active</span>' : '<span class="badge red"><span class="dot"></span>Locked</span>'}</td>
+        <td class="cell-sub">${esc(u.lastLogin)}</td>
+        <td class="num">${fmt.num(u.logins30d)}</td>
+      </tr>`).join("");
+
+      return `
+        <div class="page-head"><h1>Security &amp; Access</h1><p>Login activity, multi-factor adoption, and access health across procurement, regional, and shop users.</p></div>
+
+        <div class="grid cols-4" style="margin-bottom:16px">
+          ${U.statCard({ label: "Logins (30d)", value: fmt.num(m.logins30d), accent: "navy", icon: "🔑", iconBg: "var(--navy-50)" })}
+          ${U.statCard({ label: "Active Users", value: m.activeUsers + " / " + m.totalUsers, accent: "blue", icon: "👤", iconBg: "var(--blue-bg)" })}
+          ${U.statCard({ label: "MFA Adoption", value: fmt.pct(m.mfaPct), delta: m.mfaGaps + " without MFA", deltaClass: m.mfaGaps ? "text-amber" : "text-green", accent: "green", icon: "🛡️", iconBg: "var(--green-bg)" })}
+          ${U.statCard({ label: "Failed / Blocked", value: m.failedAttempts + " / " + m.blockedAttempts, delta: "last 24h", deltaClass: "text-red", accent: "amber", icon: "🚫", iconBg: "var(--amber-bg)" })}
+        </div>
+
+        ${m.mfaGaps || m.lockedUsers ? `<div class="notice" style="background:var(--amber-bg);border-color:#f3d9a8;color:var(--amber);margin-bottom:18px">⚠️ ${m.mfaGaps} user(s) without MFA and ${m.lockedUsers} locked account(s). Review access before granting catalog edit rights.</div>` : ""}
+
+        <div class="grid cols-2" style="margin-bottom:16px">
+          <div class="card"><h3 class="card-title">📊 Logins by Role (30d)</h3>${roleBars}</div>
+          <div class="card"><h3 class="card-title">🔐 Access Posture</h3>
+            <div class="kv-grid">
+              <span class="k">Total users</span><span class="v">${m.totalUsers}</span>
+              <span class="k">Active</span><span class="v text-green">${m.activeUsers}</span>
+              <span class="k">Locked</span><span class="v text-red">${m.lockedUsers}</span>
+              <span class="k">MFA enabled</span><span class="v">${m.mfaOn} of ${m.totalUsers}</span>
+              <span class="k">Roles in use</span><span class="v">${Object.keys(P.ROLES).length}</span>
+            </div>
+            <h3 class="card-title" style="margin-top:16px">Roles</h3>
+            <div class="tag-cats">${Object.keys(P.ROLES).map((r) => `<span class="badge navy">${esc(r)}</span>`).join("")}</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px">
+          <h3 class="card-title">🕑 Recent Login Activity</h3>
+          <div class="table-wrap" style="border:none">
+            <table class="data" style="min-width:880px"><thead><tr>
+              <th>Time</th><th>User</th><th>Role</th><th>IP</th><th>Location</th><th>Device</th><th>MFA</th><th>Result</th>
+            </tr></thead><tbody>${eventRows}</tbody></table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">👥 Users &amp; Access</h3>
+          <div class="table-wrap" style="border:none">
+            <table class="data" style="min-width:820px"><thead><tr>
+              <th>User</th><th>Role</th><th>Shop / Region</th><th>MFA</th><th>Status</th><th>Last Login</th><th class="num">Logins 30d</th>
+            </tr></thead><tbody>${userRows}</tbody></table>
+          </div>
+        </div>`;
     },
   };
 

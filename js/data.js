@@ -59,6 +59,13 @@
       pricingStatus: "Negotiated",
       notes: "Office, technology, and back-of-house supplies.",
     },
+    {
+      vendorName: "Guardian Security Systems",
+      categories: ["Locks"],
+      contractStatus: "National Contract",
+      pricingStatus: "Negotiated",
+      notes: "Electronic locks, safes, and door hardware with standardized keying.",
+    },
   ];
 
   const STATUSES = [
@@ -128,9 +135,45 @@
     ["Microfiber Cloth Pack", "16x16 microfiber cleaning cloth", "Cleaning Supplies", "Current Local Vendor", "Guardian Janitorial", 0.85, 0.6, "Each", "50 pack", 9000, "Standard", 4, true, false, "In Review"],
     ["Copy Paper 8.5x11", "92-bright multipurpose copy paper", "Office Supplies", "Current Local Vendor", "Summit Office & Tech", 4.95, 3.85, "Ream", "10/case", 2200, "Standard", 0, true, false, "In Review"],
     ["Ballpoint Pen Box", "Medium point black pen", "Office Supplies", "Current Local Vendor", "Summit Office & Tech", 3.2, 2.25, "Box", "12/box", 1400, "Economy", 1, false, false, "Not Reviewed"],
-    ["Thermal Receipt Roll", "Thermal POS receipt roll", "Technology Items", "Current Local Vendor", "Summit Office & Tech", 0.65, 0.46, "Roll", "50 pack", 12000, "Standard", 2, true, true, "Approved"],
-    ["Key Card Blank", "RFID guest room key card", "Technology Items", "Current Local Vendor", "Summit Office & Tech", 0.22, 0.15, "Each", "500 pack", 30000, "Standard", 3, true, true, "Approved"],
-    ["HDMI Cable 6ft", "6ft HDMI cable for guest TVs", "Technology Items", "Current Local Vendor", "Summit Office & Tech", 5.5, 3.95, "Each", "10 pack", 900, "Standard", 4, false, false, "Not Reviewed"],
+  ];
+
+  const locksSeed = [
+    ["RFID Door Lock", "Battery RFID guest room door lock", "Door Locks", "Current Local Vendor", "Guardian Security Systems", 185.0, 142.0, "Each", "1 each", 1200, "Standard", 0, true, true, "In Review"],
+    ["Mobile Key Lock Upgrade", "BLE mobile-key compatible lock", "Door Locks", "Current Local Vendor", "Guardian Security Systems", 240.0, 198.0, "Each", "1 each", 600, "Luxury", 2, true, true, "Approved"],
+    ["RFID Key Card", "Reprogrammable RFID guest key card", "Key Cards", "Current Local Vendor", "Summit Office & Tech", 0.22, 0.15, "Each", "500 pack", 30000, "Standard", 3, true, true, "Approved"],
+    ["Wristband Key Fob", "Waterproof RFID pool/spa wristband", "Key Cards", "Current Local Vendor", "Summit Office & Tech", 0.95, 0.68, "Each", "200 pack", 9000, "Standard", 0, false, false, "Not Reviewed"],
+    ["Electronic Safe In-Room", "Digital in-room guest safe", "Safes", "Current Local Vendor", "Guardian Security Systems", 95.0, 74.0, "Each", "1 each", 800, "Standard", 1, true, false, "In Review"],
+    ["Deadbolt Cylinder", "Commercial-grade deadbolt cylinder", "Door Hardware", "Current Local Vendor", "Guardian Security Systems", 28.0, 21.5, "Each", "10 pack", 1600, "Standard", 4, false, false, "Not Reviewed"],
+    ["Master Key System Cylinder", "Keyed-alike back-of-house cylinder", "Door Hardware", "Current Local Vendor", "Guardian Security Systems", 34.0, 26.0, "Each", "10 pack", 1100, "Standard", 2, true, false, "In Review"],
+    ["Padlock Keyed-Alike", "Weatherproof keyed-alike padlock", "Padlocks", "Current Local Vendor", "Guardian Security Systems", 12.5, 9.2, "Each", "12 pack", 2400, "Economy", 3, false, false, "Not Reviewed"],
+    ["Smart Lock Battery Pack", "Replacement lock battery pack", "Lock Accessories", "Current Local Vendor", "Guardian Security Systems", 6.4, 4.6, "Each", "50 pack", 5200, "Standard", 0, true, true, "Approved"],
+    ["Door Closer Hydraulic", "ADA hydraulic door closer", "Door Hardware", "Current Local Vendor", "Guardian Security Systems", 48.0, 37.5, "Each", "6 pack", 900, "Standard", 1, true, false, "In Review"],
+  ];
+
+  const technologySeed = [
+    ["Smart TV 50in", "50-inch hospitality smart TV", "Guest Room Tech", "Current Local Vendor", "Summit Office & Tech", 410.0, 318.0, "Each", "1 each", 850, "Standard", 0, true, true, "In Review"],
+    ["Streaming Casting Device", "Pro casting/streaming device", "Guest Room Tech", "Current Local Vendor", "Summit Office & Tech", 95.0, 71.0, "Each", "1 each", 850, "Standard", 2, true, true, "Approved"],
+    ["Smart Thermostat", "Occupancy-aware smart thermostat", "Guest Room Tech", "Current Local Vendor", "Summit Office & Tech", 130.0, 99.0, "Each", "1 each", 1100, "Standard", 1, true, true, "In Review"],
+    ["WiFi Access Point", "WiFi 6 in-room access point", "Networking", "Current Local Vendor", "Summit Office & Tech", 145.0, 112.0, "Each", "1 each", 700, "Standard", 3, true, false, "In Review"],
+    ["Network Switch 24-Port", "Managed 24-port PoE switch", "Networking", "Current Local Vendor", "Summit Office & Tech", 520.0, 415.0, "Each", "1 each", 90, "Standard", 4, true, false, "Not Reviewed"],
+    ["Tablet In-Room Control", "10-inch in-room control tablet", "Guest Room Tech", "Current Local Vendor", "Summit Office & Tech", 220.0, 168.0, "Each", "1 each", 600, "Luxury", 2, true, true, "Approved"],
+    ["POS Terminal", "Front-desk POS terminal", "Front Desk Tech", "Current Local Vendor", "Summit Office & Tech", 680.0, 540.0, "Each", "1 each", 70, "Standard", 0, true, false, "In Review"],
+    ["Thermal Receipt Roll", "Thermal POS receipt roll", "Front Desk Tech", "Current Local Vendor", "Summit Office & Tech", 0.65, 0.46, "Roll", "50 pack", 12000, "Standard", 2, true, true, "Approved"],
+    ["HDMI Cable 6ft", "6ft HDMI cable for guest TVs", "Cabling & Accessories", "Current Local Vendor", "Summit Office & Tech", 5.5, 3.95, "Each", "10 pack", 900, "Standard", 4, false, false, "Not Reviewed"],
+    ["USB-C Charging Hub", "Bedside USB-C charging hub", "Cabling & Accessories", "Current Local Vendor", "Summit Office & Tech", 14.5, 10.8, "Each", "20 pack", 4200, "Standard", 1, true, false, "In Review"],
+  ];
+
+  const otherSeed = [
+    ["Shampoo 1 oz Bottle", "Guest amenity shampoo, 1 oz", "Guest Amenities", "Current Local Vendor", "A1 American", 0.28, 0.19, "Each", "300 pack", 90000, "Standard", 0, true, true, "Approved"],
+    ["Conditioner 1 oz Bottle", "Guest amenity conditioner, 1 oz", "Guest Amenities", "Current Local Vendor", "A1 American", 0.28, 0.19, "Each", "300 pack", 78000, "Standard", 1, true, true, "Approved"],
+    ["Bar Soap 1.5 oz", "Wrapped guest bar soap, 1.5 oz", "Guest Amenities", "Current Local Vendor", "A1 American", 0.16, 0.11, "Each", "500 pack", 96000, "Economy", 2, true, false, "In Review"],
+    ["Body Lotion 1 oz", "Guest amenity body lotion, 1 oz", "Guest Amenities", "Current Local Vendor", "A1 American", 0.3, 0.21, "Each", "300 pack", 52000, "Standard", 3, false, false, "Not Reviewed"],
+    ["Single-Serve Coffee Pod", "Regular roast single-serve pod", "Food & Beverage", "Current Local Vendor", "National Hospitality Supply", 0.32, 0.24, "Each", "200 pack", 140000, "Standard", 4, true, true, "Approved"],
+    ["Bottled Water 16.9 oz", "In-room bottled spring water", "Food & Beverage", "Current Local Vendor", "National Hospitality Supply", 0.42, 0.31, "Each", "24 pack", 60000, "Standard", 0, true, false, "In Review"],
+    ["Sugar/Sweetener Packet", "Assorted sweetener packet caddy", "Food & Beverage", "Current Local Vendor", "National Hospitality Supply", 0.015, 0.011, "Each", "2000 pack", 220000, "Economy", 1, false, false, "Not Reviewed"],
+    ["Laundry Detergent Bulk", "Commercial bulk laundry detergent", "Maintenance & MRO", "Current Local Vendor", "Guardian Janitorial", 34.0, 26.5, "Pail", "1 pail", 600, "Standard", 2, true, true, "Approved"],
+    ["HVAC Filter 20x25", "Pleated MERV-8 HVAC filter", "Maintenance & MRO", "Current Local Vendor", "Guardian Janitorial", 4.2, 3.1, "Each", "12 pack", 7800, "Standard", 3, true, false, "In Review"],
+    ["LED Bulb A19", "9W LED A19 bulb, warm white", "Maintenance & MRO", "Current Local Vendor", "Summit Office & Tech", 1.85, 1.32, "Each", "24 pack", 18000, "Standard", 4, true, true, "Approved"],
   ];
 
   function buildSkus() {
@@ -176,6 +219,9 @@
     add(linenSeed, "Linens");
     add(disposableSeed, "Disposables");
     add(supplySeed, "Supplies");
+    add(locksSeed, "Locks");
+    add(technologySeed, "Technology");
+    add(otherSeed, "Other");
     return all;
   }
 
@@ -185,15 +231,22 @@
   const SUBCATEGORIES = {
     Linens: ["Sheets", "Pillowcases", "Towels", "Bath Mats", "Blankets", "Duvets", "Mattress Pads", "Pool Towels", "Kitchen Towels", "Luxury Linen Items", "Standard Linen Items", "Economy Linen Items"],
     Disposables: ["Paper Towels", "Toilet Paper", "Trash Bags", "Laundry Bags", "Gloves", "Cups", "Plates", "Utensils", "Napkins", "Coffee Filters", "Cleaning Disposables", "Guest Consumables"],
-    Supplies: ["Cleaning Supplies", "Office Supplies", "Technology Items", "Maintenance", "Janitorial"],
+    Supplies: ["Cleaning Supplies", "Office Supplies", "Maintenance", "Janitorial"],
+    Locks: ["Door Locks", "Key Cards", "Safes", "Door Hardware", "Padlocks", "Lock Accessories"],
+    Technology: ["Guest Room Tech", "Networking", "Front Desk Tech", "Cabling & Accessories"],
     Rentals: ["Event Linens", "Furniture", "Equipment", "Tableware"],
-    Other: ["Guest Amenities", "Food & Beverage", "Miscellaneous"],
+    Other: ["Guest Amenities", "Food & Beverage", "Maintenance & MRO", "Miscellaneous"],
   };
+
+  // Display order for category tiles, dropdowns, and roll-ups.
+  const CATEGORY_ORDER = ["Linens", "Disposables", "Supplies", "Locks", "Technology", "Rentals", "Other"];
 
   const CATEGORY_META = {
     Linens: { icon: "🛏️", color: "#1e3a5f" },
     Disposables: { icon: "🧻", color: "#2563eb" },
     Supplies: { icon: "🧴", color: "#0d9488" },
+    Locks: { icon: "🔐", color: "#b45309" },
+    Technology: { icon: "💻", color: "#0369a1" },
     Rentals: { icon: "📦", color: "#7c3aed" },
     Other: { icon: "✨", color: "#d97706" },
   };
@@ -229,7 +282,7 @@
   }
 
   function categories() {
-    const cats = ["Linens", "Disposables", "Supplies", "Rentals", "Other"];
+    const cats = CATEGORY_ORDER;
     return cats.map((name) => {
       const rows = SKUS.filter((s) => s.category === name);
       const agg = aggregate(rows);
@@ -410,6 +463,61 @@
     });
   }
 
+  /* --------------------------- Security & logins --------------------------- */
+  // Sample access/login telemetry for the security dashboard. Mirrors the
+  // role-based access model so procurement admins can monitor who is signing in.
+  const SECURITY_USERS = [
+    { name: "Alana Reyes", email: "areyes@portal.co", role: "Procurement Admin", shop: "Corporate", region: "All", mfa: true, status: "Active", lastLogin: "2026-06-09 07:42", logins30d: 64 },
+    { name: "Marco Calderon", email: "mcalderon@portal.co", role: "Category Manager", shop: "Corporate", region: "All", mfa: true, status: "Active", lastLogin: "2026-06-09 06:55", logins30d: 51 },
+    { name: "Jordan Patel", email: "jpatel@portal.co", role: "Regional Manager", shop: "Harbor View Resort", region: "Southeast", mfa: true, status: "Active", lastLogin: "2026-06-08 18:21", logins30d: 38 },
+    { name: "Sofia Okafor", email: "sokafor@portal.co", role: "Regional Manager", shop: "Cascade Lodge", region: "West", mfa: false, status: "Active", lastLogin: "2026-06-08 14:09", logins30d: 29 },
+    { name: "Liam Tran", email: "ltran@portal.co", role: "Shop Manager", shop: "Magnolia Suites", region: "Southeast", mfa: false, status: "Active", lastLogin: "2026-06-07 09:33", logins30d: 17 },
+    { name: "Priya Nair", email: "pnair@portal.co", role: "Shop Manager", shop: "Beacon Hill Inn", region: "Northeast", mfa: true, status: "Active", lastLogin: "2026-06-09 08:02", logins30d: 22 },
+    { name: "Devon Brooks", email: "dbrooks@portal.co", role: "Shop Manager", shop: "Liberty Plaza Hotel", region: "Northeast", mfa: false, status: "Locked", lastLogin: "2026-05-28 11:47", logins30d: 4 },
+    { name: "Grace Lim", email: "glim@portal.co", role: "Executive", shop: "Corporate", region: "All", mfa: true, status: "Active", lastLogin: "2026-06-06 16:15", logins30d: 9 },
+  ];
+
+  const LOGIN_EVENTS = [
+    { time: "2026-06-09 08:02", user: "Priya Nair", role: "Shop Manager", ip: "73.118.4.21", location: "Boston, US", device: "Chrome · macOS", result: "Success", mfa: "Passed" },
+    { time: "2026-06-09 07:42", user: "Alana Reyes", role: "Procurement Admin", ip: "98.45.12.7", location: "Atlanta, US", device: "Edge · Windows", result: "Success", mfa: "Passed" },
+    { time: "2026-06-09 07:19", user: "Devon Brooks", role: "Shop Manager", ip: "201.44.9.88", location: "Unknown", device: "Firefox · Windows", result: "Blocked", mfa: "Failed" },
+    { time: "2026-06-09 06:55", user: "Marco Calderon", role: "Category Manager", ip: "98.45.12.9", location: "Atlanta, US", device: "Chrome · Windows", result: "Success", mfa: "Passed" },
+    { time: "2026-06-09 06:51", user: "Devon Brooks", role: "Shop Manager", ip: "201.44.9.88", location: "Unknown", device: "Firefox · Windows", result: "Failed", mfa: "—" },
+    { time: "2026-06-08 22:14", user: "unknown@—", role: "—", ip: "45.146.8.130", location: "Off-network", device: "curl", result: "Blocked", mfa: "—" },
+    { time: "2026-06-08 18:21", user: "Jordan Patel", role: "Regional Manager", ip: "66.87.3.14", location: "Miami, US", device: "Safari · iOS", result: "Success", mfa: "Passed" },
+    { time: "2026-06-08 14:09", user: "Sofia Okafor", role: "Regional Manager", ip: "172.58.21.4", location: "Seattle, US", device: "Chrome · Android", result: "Success", mfa: "Not enrolled" },
+    { time: "2026-06-07 09:33", user: "Liam Tran", role: "Shop Manager", ip: "73.201.5.66", location: "Savannah, US", device: "Chrome · Windows", result: "Success", mfa: "Not enrolled" },
+    { time: "2026-06-06 16:15", user: "Grace Lim", role: "Executive", ip: "98.45.12.40", location: "Atlanta, US", device: "Safari · macOS", result: "Success", mfa: "Passed" },
+  ];
+
+  function securityMetrics() {
+    const users = SECURITY_USERS;
+    const active = users.filter((u) => u.status === "Active").length;
+    const locked = users.filter((u) => u.status === "Locked").length;
+    const mfaOn = users.filter((u) => u.mfa).length;
+    const mfaPct = round((mfaOn / users.length) * 100, 1);
+    const logins30d = users.reduce((s, u) => s + u.logins30d, 0);
+    const failed = LOGIN_EVENTS.filter((e) => e.result === "Failed").length;
+    const blocked = LOGIN_EVENTS.filter((e) => e.result === "Blocked").length;
+    // logins by role
+    const byRole = {};
+    users.forEach((u) => { byRole[u.role] = (byRole[u.role] || 0) + u.logins30d; });
+    return {
+      totalUsers: users.length,
+      activeUsers: active,
+      lockedUsers: locked,
+      mfaOn,
+      mfaPct,
+      logins30d,
+      failedAttempts: failed,
+      blockedAttempts: blocked,
+      mfaGaps: users.filter((u) => !u.mfa).length,
+      byRole,
+      users,
+      events: LOGIN_EVENTS,
+    };
+  }
+
   /* ----------------------------- AI categorizer ----------------------------- */
   // Lightweight keyword matcher that mimics future AI auto-categorization.
   const AI_RULES = [
@@ -520,6 +628,7 @@
     STATUSES,
     SUBCATEGORIES,
     CATEGORY_META,
+    CATEGORY_ORDER,
     SKUS,
     aggregate,
     categories,
@@ -529,6 +638,7 @@
     regions,
     opportunities,
     trackerRows,
+    securityMetrics,
     categorize,
     AI_RULES,
     ROLES,
