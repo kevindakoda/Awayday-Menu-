@@ -15,7 +15,11 @@
   /* ---------------------------- Reference data ---------------------------- */
   const REGIONS = ["Southeast", "Northeast", "West"];
 
-  const SHOPS = [
+  // Brands (properties) start empty — populate via Admin → Excel upload,
+  // image/PDF OCR, manual add, or the optional "Load sample data" button.
+  // SAMPLE_SHOPS backs the bundled demo dataset.
+  const SHOPS = [];
+  const SAMPLE_SHOPS = [
     { shopName: "Harbor View Resort", code: "Shop A", region: "Southeast" },
     { shopName: "Magnolia Suites", code: "Shop B", region: "Southeast" },
     { shopName: "Beacon Hill Inn", code: "Shop C", region: "Northeast" },
@@ -182,7 +186,7 @@
     const add = (seed, category) => {
       seed.forEach((r) => {
         const [name, desc, sub, cv, rv, cp, np, uom, pack, qty, tier, shopIdx, contracted, preferred, status] = r;
-        const shop = SHOPS[shopIdx];
+        const shop = SAMPLE_SHOPS[shopIdx];
         const currentAnnualSpend = round(cp * qty);
         const newAnnualSpend = round(np * qty);
         const annualSavings = round(currentAnnualSpend - newAnnualSpend);
@@ -225,7 +229,8 @@
     return all;
   }
 
-  const SKUS = buildSkus();
+  // Catalog starts empty; populated via uploads/OCR or loadSampleData().
+  const SKUS = [];
 
   /* ------------------------- Subcategory definitions ------------------------- */
   const SUBCATEGORIES = {
@@ -381,6 +386,82 @@
     const brand = { shopName, code, region: region || REGIONS[0] };
     SHOPS.push(brand);
     return { ok: true, mode: "created", brand };
+  }
+
+  // Unique next SKU id based on current catalog contents.
+  function nextSkuId() {
+    let n = SKUS.length + 1, id;
+    do { id = "SKU-" + String(n++).padStart(3, "0"); } while (SKUS.some((s) => s.id === id));
+    return id;
+  }
+
+  // Normalize a loose record (from Excel/CSV/OCR/manual) into a full SKU,
+  // computing spend and savings.
+  function makeSku(f) {
+    const cp = +f.currentUnitPrice || 0, np = +f.newUnitPrice || 0, qty = +f.annualQuantity || 0;
+    const currentAnnualSpend = round(cp * qty), newAnnualSpend = round(np * qty);
+    const annualSavings = round(currentAnnualSpend - newAnnualSpend);
+    return {
+      id: f.id || nextSkuId(),
+      productName: f.productName || "Unnamed item",
+      description: f.description || f.productName || "",
+      category: f.category || "Other",
+      subcategory: f.subcategory || "Miscellaneous",
+      currentVendor: f.currentVendor || "Current Local Vendor",
+      recommendedVendor: f.recommendedVendor || "—",
+      currentUnitPrice: cp, newUnitPrice: np,
+      unitOfMeasure: f.unitOfMeasure || "Each", packSize: f.packSize || "—",
+      annualQuantity: qty, currentAnnualSpend, newAnnualSpend, annualSavings,
+      savingsPercentage: currentAnnualSpend ? round((annualSavings / currentAnnualSpend) * 100, 1) : 0,
+      shop: f.shop || "", shopCode: f.shopCode || "", region: f.region || "",
+      qualityTier: f.qualityTier || "Standard",
+      implementationStatus: f.implementationStatus || "Not Reviewed",
+      preferredItem: !!f.preferredItem, contractedItem: !!f.contractedItem,
+      imageUrl: "", notes: f.notes || "",
+    };
+  }
+
+  // Find a brand by name (case-insensitive) or create it on the fly.
+  function ensureBrand(name, region) {
+    name = (name || "").trim();
+    if (!name) return null;
+    let b = SHOPS.find((s) => s.shopName.toLowerCase() === name.toLowerCase());
+    if (!b) {
+      b = { shopName: name, code: nextBrandCode(), region: (region || "").trim() || REGIONS[0] };
+      SHOPS.push(b);
+    } else if (region && !b.region) {
+      b.region = (region || "").trim();
+    }
+    return b;
+  }
+
+  // Bulk-import loose records. Each record may carry `brand` (or `shop`) and
+  // `region`; unknown brands are created automatically and linked to the SKU.
+  function importRecords(records) {
+    const before = SHOPS.length;
+    let added = 0;
+    (records || []).forEach((r) => {
+      const b = ensureBrand(r.brand || r.shop, r.region);
+      SKUS.push(makeSku({
+        ...r,
+        shop: b ? b.shopName : (r.shop || ""),
+        shopCode: b ? b.code : (r.shopCode || ""),
+        region: b ? b.region : (r.region || ""),
+      }));
+      added++;
+    });
+    return { added, brandsCreated: SHOPS.length - before, totalBrands: SHOPS.length, totalSkus: SKUS.length };
+  }
+
+  // Wipe all brands and SKUs (reference taxonomy and vendors are kept).
+  function clearAll() { SKUS.length = 0; SHOPS.length = 0; }
+
+  // Restore the bundled demo dataset (5 brands + sample SKUs).
+  function loadSampleData() {
+    clearAll();
+    SAMPLE_SHOPS.forEach((s) => SHOPS.push({ ...s }));
+    buildSkus().forEach((s) => SKUS.push(s));
+    return { totalBrands: SHOPS.length, totalSkus: SKUS.length };
   }
 
   // Suggest the next unused "Shop X" code for a new brand.
@@ -692,6 +773,12 @@
     shops,
     upsertBrand,
     nextBrandCode,
+    nextSkuId,
+    makeSku,
+    ensureBrand,
+    importRecords,
+    clearAll,
+    loadSampleData,
     vendorsView,
     regions,
     opportunities,

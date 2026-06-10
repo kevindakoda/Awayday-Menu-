@@ -8,6 +8,15 @@
   const U = window.UI;
   const { fmt } = P;
   const esc = U.esc;
+  // Safe max: avoids Math.max(...[]) === -Infinity when the catalog is empty.
+  const mx = (arr) => (arr.length ? Math.max(...arr) : 0);
+  // Friendly empty-state block shown on data pages before anything is uploaded.
+  const emptyState = (msg) => `<div class="card" style="text-align:center;padding:40px 20px">
+    <div style="font-size:34px;margin-bottom:8px">📭</div>
+    <h3 style="margin:0 0 6px">No data yet</h3>
+    <p class="text-muted" style="max-width:440px;margin:0 auto 14px">${msg || "Upload brands and products in the Admin tab to populate the portal."}</p>
+    <a class="btn btn-primary btn-sm" href="#/admin">Go to Admin → upload</a>
+  </div>`;
 
   // Shared, in-memory UI state (filters, selections) persisted across renders.
   const State = (window.AppState = window.AppState || {
@@ -30,8 +39,8 @@
       const vendorCount = P.VENDORS.length;
       const shops = P.shops();
       const opps = P.opportunities();
-      const maxCatSavings = Math.max(...cats.map((c) => c.savingsOpportunity));
-      const maxShopSavings = Math.max(...shops.map((s) => s.savingsOpportunity));
+      const maxCatSavings = mx(cats.map((c) => c.savingsOpportunity));
+      const maxShopSavings = mx(shops.map((s) => s.savingsOpportunity));
 
       const kpis = [
         U.statCard({ label: "Baseline Spend", value: fmt.money(totals.baselineSpend), accent: "navy", icon: "💵", iconBg: "var(--navy-50)" }),
@@ -78,6 +87,8 @@
         <h1>Procurement Savings Portal</h1>
         <p>A centralized view of decentralized purchasing opportunities across products, SKUs, vendors, shops, and categories. Track old pricing, negotiated pricing, and savings opportunities by category, subcategory, vendor, and shop.</p>
       </div>
+
+      ${P.SKUS.length ? "" : `<div class="notice" style="margin-bottom:18px">📭 No data loaded yet. Head to the <a href="#/admin">Admin tab</a> to upload an Excel of products, OCR a price list, or load the sample dataset.</div>`}
 
       <div class="grid cols-4">${kpis.join("")}</div>
       <div class="grid cols-4" style="margin-top:16px">${kpis2.join("")}</div>
@@ -340,7 +351,7 @@
       P.SKUS.forEach((s) => { (groups[keyFn(s)] = groups[keyFn(s)] || []).push(s); });
       const grouped = Object.keys(groups).map((k) => ({ name: k, ...P.aggregate(groups[k]), rec: P.topVendor(groups[k]) }))
         .sort((a, b) => b.savingsOpportunity - a.savingsOpportunity);
-      const maxG = Math.max(...grouped.map((g) => g.savingsOpportunity));
+      const maxG = mx(grouped.map((g) => g.savingsOpportunity));
       const groupRows = grouped.map((g) => `<tr>
         <td class="cell-strong">${esc(g.name)}</td>
         <td class="num">${fmt.money(g.baselineSpend)}</td>
@@ -548,6 +559,9 @@
     title: "Product Comparison",
     crumb: "Product Comparison",
     render(params) {
+      if (!P.SKUS.length) {
+        return `<div class="page-head"><h1>Product Comparison</h1><p>Side-by-side comparison of recommended replacements.</p></div>${emptyState("Add products in the Admin tab to compare items side by side.")}`;
+      }
       let sku;
       if (params[0]) sku = P.SKUS.find((s) => s.id === decodeURIComponent(params[0]));
       if (!sku) sku = P.SKUS[State.comparePair] || P.SKUS[0];
@@ -658,6 +672,15 @@
       return `
       <div class="page-head"><h1>Admin Console</h1><p>Upload pricing data, manage taxonomy, brands and vendors, edit SKUs, and import/export CSV. Built to support future AI auto-categorization.</p></div>
       <div class="notice" style="margin-bottom:18px">ℹ️ This is a working front-end mockup. Uploaded/edited data updates the in-memory model for this session and can be exported to CSV.</div>
+
+      <div class="card" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+        <div><h3 class="card-title" style="margin:0">🗃️ Dataset</h3>
+          <div class="cell-sub" id="dataStatus">${P.SHOPS.length} brand(s) · ${P.SKUS.length} SKU(s) loaded.</div></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn btn-outline btn-sm" id="loadSample">⬇ Load sample data</button>
+          <button class="btn btn-outline btn-sm" id="clearData" style="color:var(--red);border-color:var(--red)">🗑 Clear all data</button>
+        </div>
+      </div>
 
       <div class="grid cols-2">
         <div class="card"><h3 class="card-title">⬆️ Upload SKU Pricing Data</h3>
@@ -773,7 +796,7 @@
           currentUnitPrice: cur, newUnitPrice: nw, unitOfMeasure: "Each", packSize: "—", annualQuantity: qty,
           currentAnnualSpend: P.round(cur * qty), newAnnualSpend: P.round(nw * qty),
           annualSavings: P.round((cur - nw) * qty), savingsPercentage: cur ? P.round((cur - nw) / cur * 100, 1) : 0,
-          shop: P.SHOPS[0].shopName, shopCode: P.SHOPS[0].code, region: P.SHOPS[0].region,
+          shop: (P.SHOPS[0] || {}).shopName || "", shopCode: (P.SHOPS[0] || {}).code || "", region: (P.SHOPS[0] || {}).region || "",
           qualityTier: ai.qualityTier, implementationStatus: g("adStatus").value,
           preferredItem: g("adPref").checked, contractedItem: g("adContract").checked, imageUrl: "", notes: "Added via admin console.",
         };
@@ -790,6 +813,17 @@
         const v = document.getElementById("newVendor").value.trim();
         if (v) { P.VENDORS.push({ vendorName: v, categories: [], contractStatus: document.getElementById("newVendorStatus").value, pricingStatus: "Proposed", notes: "Added via admin console." });
           document.getElementById("vendorResult").textContent = `Added ${v}. Vendors: ${P.VENDORS.length}.`; }
+      });
+
+      // ---- Dataset: load sample / clear all ----
+      dl("loadSample", () => {
+        P.loadSampleData();
+        if (window.App && window.App.renderCurrent) window.App.renderCurrent();
+      });
+      dl("clearData", () => {
+        if (!confirm("Remove ALL brands and SKUs? This cannot be undone (you can reload sample data afterwards).")) return;
+        P.clearAll();
+        if (window.App && window.App.renderCurrent) window.App.renderCurrent();
       });
 
       // ---- Brand (shop / property) create + edit ----
@@ -827,6 +861,9 @@
       const r = rows[i];
       const cur = +r[idx("Current Unit Price")] || 0, nw = +r[idx("New Unit Price")] || 0, qty = +r[idx("Annual Quantity")] || 0;
       const id = (r[idx("SKU")] || "SKU-" + String(P.SKUS.length + 1).padStart(3, "0")).trim();
+      // Auto-create the brand named in the Shop column (if any) so CSV import
+      // works against an empty dataset and links SKUs to brands.
+      const brand = P.ensureBrand(r[idx("Shop")] || "", r[idx("Region")] || "");
       const rec = {
         id, productName: r[idx("Product Name")] || id, description: r[idx("Description")] || "",
         category: r[idx("Category")] || "Other", subcategory: r[idx("Subcategory")] || "Miscellaneous",
@@ -834,7 +871,7 @@
         currentUnitPrice: cur, newUnitPrice: nw, unitOfMeasure: r[idx("UOM")] || "Each", packSize: r[idx("Pack Size")] || "—",
         annualQuantity: qty, currentAnnualSpend: P.round(cur * qty), newAnnualSpend: P.round(nw * qty),
         annualSavings: P.round((cur - nw) * qty), savingsPercentage: cur ? P.round((cur - nw) / cur * 100, 1) : 0,
-        shop: r[idx("Shop")] || P.SHOPS[0].shopName, shopCode: P.SHOPS[0].code, region: r[idx("Region")] || P.SHOPS[0].region,
+        shop: brand ? brand.shopName : (r[idx("Shop")] || ""), shopCode: brand ? brand.code : "", region: brand ? brand.region : (r[idx("Region")] || ""),
         qualityTier: r[idx("Quality Tier")] || "Standard", implementationStatus: r[idx("Implementation Status")] || "Not Reviewed",
         preferredItem: /true|yes|1/i.test(r[idx("Preferred Item")] || ""), contractedItem: /true|yes|1/i.test(r[idx("Contracted Item")] || ""),
         imageUrl: "", notes: r[idx("Notes")] || "",
