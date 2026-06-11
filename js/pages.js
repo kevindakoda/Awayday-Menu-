@@ -508,6 +508,23 @@
     crumb: "Vendors",
     render() {
       const vendors = P.vendorsView();
+      // Build the contract price book block for a vendor, grouped by category.
+      const priceBook = (vendorName) => {
+        const books = (P.contractsByVendor ? P.contractsByVendor(vendorName) : []);
+        if (!books.length) return "";
+        const blocks = books.map((c) => {
+          const byCat = {};
+          c.items.forEach((it) => { (byCat[it.category] = byCat[it.category] || []).push(it); });
+          const cats = Object.keys(byCat).sort().map((cat) => `
+            <div style="margin-top:6px"><div class="cell-strong" style="font-size:12px">${esc(cat)}</div>
+            ${byCat[cat].map((it) => `<div class="cell-sub" style="display:flex;justify-content:space-between;gap:10px">
+              <span>${esc(it.name)}${it.uom && it.uom !== "Each" ? ` <span class="badge navy" style="font-size:9px">${esc(it.uom)}</span>` : ""}</span>
+              <span class="mono">${fmt.money(it.unitPrice, 2)}</span></div>`).join("")}</div>`).join("");
+          const term = c.effectiveDate ? ` · ${esc(c.effectiveDate)}${c.expirationDate ? "–" + esc(c.expirationDate) : ""}` : "";
+          return `<details style="margin-top:6px"><summary class="cell-strong" style="cursor:pointer">📑 ${esc(c.title)} <span class="cell-sub">(${c.items.length} item(s)${term})</span></summary>${cats}</details>`;
+        }).join("");
+        return `<div style="margin-top:12px;border-top:1px solid var(--gray-100);padding-top:10px"><div class="cell-strong" style="font-size:12px;margin-bottom:2px">📒 Contract price book</div>${blocks}</div>`;
+      };
       const cards = vendors.map((v) => `
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:flex-start">
@@ -524,6 +541,7 @@
             <span class="k">Shops served</span><span class="v">${v.shopsServed.length}</span>
           </div>
           <div class="cell-sub" style="margin-top:12px;border-top:1px solid var(--gray-100);padding-top:10px">${esc(v.notes)}</div>
+          ${priceBook(v.vendorName)}
         </div>`).join("");
 
       // Current vs recommended comparison example
@@ -808,6 +826,17 @@
           <button class="btn btn-primary btn-sm" id="aiReviewBtn" style="margin-left:auto">✨ Run AI savings review</button>
         </div>
         <div id="aiReviewResult" style="margin-top:12px"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <h3 class="card-title">📑 Upload vendor contract → price book</h3>
+        <p class="text-muted" style="font-size:12.5px;margin:0 0 12px">Upload a vendor contract, rate sheet, or pricing schedule. Your selected AI provider reads it and builds a <b>Vendor Price Book</b> — the vendor's services &amp; products with per-each pricing, grouped by category — shown on the <a href="#/vendors">Vendors</a> page. PDF &amp; images use AI; Excel/CSV schedules are parsed directly. Word .docx: please export to PDF first.</p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+          <div class="field" style="margin:0;min-width:240px"><label>Vendor name (optional override)</label><input type="text" id="contractVendor" placeholder="e.g. A1 American"></div>
+          <label class="btn btn-primary btn-sm">Choose contract file<input type="file" id="contractFile" accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xlsx,.xls,.csv,.doc,.docx" hidden></label>
+        </div>
+        <div class="drop-zone" id="contractDrop" style="margin-top:12px"><div class="di">📑</div><div style="margin:6px 0">Drag &amp; drop a contract here</div><div class="cell-sub">.pdf · images · .xlsx · .csv</div></div>
+        <div id="contractResult" style="margin-top:12px"></div>
       </div>
 
       <div class="grid cols-2">
@@ -1181,6 +1210,110 @@
           if (out) out.innerHTML = `<div class="notice" style="background:#fdeaea;border-color:#f3c2c2;color:var(--red)">❌ ${esc(e.message)}</div>`;
         } finally { aiBtn.disabled = false; }
       });
+
+      // ---- Vendor contract → price book ----
+      const setContractStatus = (msg, kind) => {
+        const el = document.getElementById("contractResult");
+        if (!el) return;
+        const bg = kind === "ok" ? "background:var(--green-bg);border-color:#bfe6cd;color:var(--green-700)"
+          : kind === "err" ? "background:#fdeaea;border-color:#f3c2c2;color:var(--red)" : "";
+        el.innerHTML = `<div class="notice" style="${bg}">${msg}</div>`;
+      };
+      // Parse a contract pricing schedule (Excel/CSV) without requiring a shop column.
+      const readContractSheet = (file) => new Promise((resolve, reject) => {
+        const nm = (file.name || "").toLowerCase();
+        const r = new FileReader();
+        r.onerror = () => reject(new Error("Could not read the file."));
+        if (nm.endsWith(".csv") || file.type === "text/csv") { r.onload = () => resolve(csvToObjects(String(r.result))); r.readAsText(file); }
+        else {
+          r.onload = () => {
+            if (!window.XLSX) { reject(new Error("Spreadsheet library failed to load.")); return; }
+            const wb = window.XLSX.read(new Uint8Array(r.result), { type: "array" });
+            const out = [];
+            wb.SheetNames.forEach((sn) => {
+              const grid = window.XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: "", blankrows: false });
+              let hi = -1;
+              for (let i = 0; i < Math.min(grid.length, 25); i++) { if (looksLikeHeader(grid[i])) { hi = i; break; } }
+              if (hi < 0) return;
+              const header = grid[hi].map(normKey);
+              for (let i = hi + 1; i < grid.length; i++) {
+                const cells = grid[i] || [];
+                if (!cells.some((c) => String(c == null ? "" : c).trim() !== "")) continue;
+                const o = {}; header.forEach((h, j) => { if (h && o[h] === undefined) o[h] = cells[j] !== undefined ? cells[j] : ""; });
+                out.push(o);
+              }
+            });
+            resolve(out);
+          };
+          r.readAsArrayBuffer(file);
+        }
+      });
+      const contractItemFromRow = (row) => {
+        const o = {}; Object.keys(row).forEach((k) => { o[normKey(k)] = row[k]; });
+        const g = (names) => { for (const n of names) { if (o[n] !== undefined && String(o[n]).trim() !== "") return String(o[n]).trim(); } return ""; };
+        return {
+          name: g(["service", "item", "product", "product name", "name", "description"]),
+          description: g(["description", "details", "long description"]),
+          category: g(["category"]),
+          subcategory: g(["subcategory", "sub category", "sub-category"]),
+          unitPrice: num(g(["price each", "price/each", "unit price each", "unit price", "contract price", "rate", "price", "each"])),
+          uom: g(["uom", "unit of measure", "unit"]),
+          packSize: g(["pack size", "pack", "case pack"]),
+          notes: g(["notes", "comments"]),
+        };
+      };
+      const renderContractPreview = (c) => {
+        const el = document.getElementById("contractResult");
+        if (!el) return;
+        const byCat = {};
+        c.items.forEach((it) => { (byCat[it.category] = byCat[it.category] || []).push(it); });
+        const blocks = Object.keys(byCat).sort().map((cat) => `
+          <div style="margin-top:8px"><div class="cell-strong">${esc(cat)}</div>
+          ${byCat[cat].map((it) => `<div class="cell-sub" style="display:flex;justify-content:space-between;gap:10px"><span>${esc(it.name)}${it.uom && it.uom !== "Each" ? ` <span class="badge navy" style="font-size:9px">${esc(it.uom)}</span>` : ""}</span><span class="mono">${fmt.money(it.unitPrice, 2)}</span></div>`).join("")}</div>`).join("");
+        el.innerHTML += `<div class="card" style="margin-top:10px"><h4 style="margin:0 0 4px">${esc(c.vendorName)} · price book${c.effectiveDate ? ` <span class="cell-sub">(eff. ${esc(c.effectiveDate)}${c.expirationDate ? "–" + esc(c.expirationDate) : ""})</span>` : ""}</h4>${blocks}</div>`;
+      };
+      const processContract = async (file) => {
+        if (!file) return;
+        if (!isAdmin()) { setContractStatus("Only a Procurement Admin can upload contracts.", "err"); return; }
+        const nm = (file.name || "").toLowerCase();
+        const vendorOverride = ((document.getElementById("contractVendor") || {}).value || "").trim();
+        const baseName = (file.name || "contract").replace(/\.[^.]+$/, "");
+        if (/\.(docx?|doc)$/.test(nm)) { setContractStatus("Word documents can't be read in the browser. Please export the contract to PDF and re-upload.", "err"); return; }
+        let extracted;
+        try {
+          if (/\.(xlsx|xls|csv)$/.test(nm) || /sheet|excel|csv/.test(file.type)) {
+            setContractStatus("⏳ Reading pricing schedule…");
+            const rows = await readContractSheet(file);
+            extracted = { vendorName: vendorOverride || baseName, title: baseName, items: rows.map(contractItemFromRow) };
+          } else if (/\.(pdf|png|jpe?g|webp|gif)$/.test(nm) || /^image\//.test(file.type) || file.type === "application/pdf") {
+            setContractStatus(`🤖 ${esc(window.AI.getProvider() === "gemini" ? "Gemini" : "Claude")} is reading the contract…`);
+            extracted = await window.AI.contractExtract(file);
+          } else { setContractStatus("Unsupported file. Upload a PDF, image, or Excel/CSV.", "err"); return; }
+        } catch (e) { setContractStatus(`❌ ${esc(e.message || e)}`, "err"); return; }
+        if (vendorOverride) extracted.vendorName = vendorOverride;
+        extracted.source = file.name || "";
+        if (!(extracted.items || []).some((i) => (i.name && String(i.name).trim()) || i.unitPrice)) {
+          setContractStatus("No priced line items were found in that contract.", "err"); return;
+        }
+        const res = P.importContract(extracted);
+        refreshDataset();
+        if (window.Store && window.Store.available()) {
+          setContractStatus(`✅ ${esc(res.vendorName)}: ${res.itemCount} item(s) across ${res.categories.length} categor${res.categories.length === 1 ? "y" : "ies"}. 💾 Saving…`, "ok");
+          try { await window.Store.upsertContract(res.contract); setContractStatus(`✅ Price book saved for <b>${esc(res.vendorName)}</b> — ${res.itemCount} item(s). See the <a href="#/vendors">Vendors</a> page.`, "ok"); }
+          catch (e) { setContractStatus(`⚠️ ${esc(res.vendorName)}: imported ${res.itemCount} item(s) this session, but DB save failed: ${esc(e.message)}`, "err"); }
+        } else {
+          setContractStatus(`✅ Price book for <b>${esc(res.vendorName)}</b> — ${res.itemCount} item(s) (session only). See the <a href="#/vendors">Vendors</a> page.`, "ok");
+        }
+        renderContractPreview(res.contract);
+      };
+      const contractInput = document.getElementById("contractFile");
+      if (contractInput) contractInput.addEventListener("change", () => { processContract(contractInput.files[0]); contractInput.value = ""; });
+      const cDrop = document.getElementById("contractDrop");
+      if (cDrop) {
+        cDrop.addEventListener("dragover", (e) => { e.preventDefault(); cDrop.style.borderColor = "var(--navy)"; });
+        cDrop.addEventListener("dragleave", () => { cDrop.style.borderColor = ""; });
+        cDrop.addEventListener("drop", (e) => { e.preventDefault(); cDrop.style.borderColor = ""; processContract(e.dataTransfer.files[0]); });
+      }
 
       const rawInput = document.getElementById("rawFile");
       if (rawInput) rawInput.addEventListener("change", () => { processRawFile(rawInput.files[0]); rawInput.value = ""; });
