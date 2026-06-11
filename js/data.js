@@ -401,8 +401,16 @@
     const cp = +f.currentUnitPrice || 0, np = +f.newUnitPrice || 0, qty = +f.annualQuantity || 0;
     const currentAnnualSpend = round(cp * qty), newAnnualSpend = round(np * qty);
     const annualSavings = round(currentAnnualSpend - newAnnualSpend);
+    // `id` is a unique surrogate row key (also the DB primary key). The vendor
+    // SKU lives in `sku` and may repeat across brands — the same product is
+    // bought by many shops — so it must never be used as the id.
+    const sku = (f.sku != null && String(f.sku).trim() !== "") ? String(f.sku).trim()
+      : (f.id != null && String(f.id).trim() !== "" ? String(f.id).trim() : "");
+    let id = (f.id != null && String(f.id).trim() !== "") ? String(f.id).trim() : "";
+    if (!id || SKUS.some((s) => s.id === id)) id = nextSkuId();
     return {
-      id: f.id || nextSkuId(),
+      id,
+      sku,
       productName: f.productName || "Unnamed item",
       description: f.description || f.productName || "",
       category: f.category || "Other",
@@ -729,7 +737,7 @@
   function skusToCsv(rows) {
     const header = CSV_TEMPLATE_COLUMNS.join(",");
     const lines = rows.map((s) => [
-      s.id, s.productName, s.description, s.category, s.subcategory, s.shop, s.region,
+      s.sku || s.id, s.productName, s.description, s.category, s.subcategory, s.shop, s.region,
       s.currentVendor, s.recommendedVendor, s.currentUnitPrice, s.newUnitPrice, s.unitOfMeasure,
       s.packSize, s.annualQuantity, s.qualityTier, s.contractedItem, s.preferredItem,
       s.implementationStatus, s.notes,
