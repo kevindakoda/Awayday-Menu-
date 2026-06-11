@@ -261,8 +261,8 @@
           </div>
           <div class="table-wrap">
             <table class="data" style="min-width:1180px"><thead><tr>
-              ${th("id", "SKU")}<th>Img</th>${th("productName", "Product")}<th>Category</th><th>Shop</th><th>Vendor → Rec.</th>
-              ${th("newUnitPrice", "Unit Price", "num")}<th class="num">UOM</th>${th("annualQuantity", "Annual Qty", "num")}
+              ${th("id", "SKU")}<th>Img</th>${th("productName", "Product")}<th>Category</th>${th("shopCode", "Shop")}<th>Vendor → Rec.</th>
+              ${th("newUnitPrice", "Price / Each", "num")}<th class="num">UOM</th>${th("annualQuantity", "Annual Qty", "num")}
               ${th("currentAnnualSpend", "Annual Spend", "num")}${th("annualSavings", "Savings", "num")}${th("savingsPercentage", "%", "")}${th("implementationStatus", "Status")}
             </tr></thead><tbody>${body}</tbody></table>
           </div>
@@ -665,10 +665,17 @@
     if (!skus.length) {
       return `<div class="empty" style="padding:26px;text-align:center">No SKUs to show. Upload a file above or load sample data.</div>`;
     }
-    const rows = skus.map((s) => `<tr>
+    // Group by shop so an upload is easy to review brand-by-brand.
+    const sorted = skus.slice().sort((a, b) =>
+      (a.shop || "~").localeCompare(b.shop || "~") ||
+      (a.category || "").localeCompare(b.category || "") ||
+      (a.subcategory || "").localeCompare(b.subcategory || "") ||
+      (a.productName || "").localeCompare(b.productName || ""));
+    const rows = sorted.map((s) => `<tr>
       <td><span class="cell-strong">${esc(s.productName)}</span><div class="cell-sub">${esc(s.sku || s.id)} · ${esc(s.category)} › ${esc(s.subcategory)}</div></td>
       <td>${esc(s.shop || "—")}</td>
       <td><div>${esc(s.recommendedVendor || "—")}</div><div class="cell-sub">was ${esc(s.currentVendor || "—")}</div></td>
+      <td class="num"><span class="price-old">${fmt.money(s.currentUnitPrice, 2)}</span><div class="text-green cell-strong">${fmt.money(s.newUnitPrice, 2)}</div></td>
       <td class="num">${fmt.money(s.currentAnnualSpend)}</td>
       <td class="num">${fmt.money(s.newAnnualSpend)}</td>
       <td class="num text-green">${fmt.money(s.annualSavings)}</td>
@@ -676,9 +683,9 @@
       <td><button class="btn btn-outline btn-sm" data-edit="${esc(s.id)}">✏️ Edit</button></td>
     </tr>`).join("");
     return `<div class="table-wrap"><table class="data"><thead><tr>
-      <th>Product</th><th>Brand</th><th>Suppliers</th><th class="num">Baseline spend</th><th class="num">Future spend</th><th class="num">Savings</th><th>Status</th><th></th>
+      <th>Product</th><th>Brand / Shop</th><th>Suppliers</th><th class="num">Price / Each</th><th class="num">Baseline spend</th><th class="num">Future spend</th><th class="num">Savings</th><th>Status</th><th></th>
     </tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="cell-sub" style="margin-top:8px">${skus.length} SKU(s). Baseline = current unit price × annual qty; future = new unit price × annual qty.</div>`;
+    <div class="cell-sub" style="margin-top:8px">${skus.length} SKU(s), grouped by shop. Price / Each = current → negotiated unit price; baseline = price/each × annual qty.</div>`;
   }
 
   // Open the modal editor for one SKU. Admin-only; recomputes spend on save.
