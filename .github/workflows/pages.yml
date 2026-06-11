@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: ["claude/charming-newton-krpjpf"]
+    branches: ["claude/exciting-pasteur-3v1svx"]
   workflow_dispatch:
 
 # Grant the GITHUB_TOKEN the scopes the Pages deploy needs. These job-level
