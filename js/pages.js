@@ -21,6 +21,7 @@
   // Shared, in-memory UI state (filters, selections) persisted across renders.
   const State = (window.AppState = window.AppState || {
     catalog: { search: "", category: "", subcategory: "", shop: "", vendor: "", status: "", minSavingsPct: 0, preferred: false, contracted: false, sort: "annualSavings", dir: "desc" },
+    sampleRequests: [],
     savingsView: "Category",
     comparePair: 0,
     shopTab: "Overview",
@@ -28,6 +29,35 @@
   });
 
   const PAGES = (window.PAGES = {});
+
+  /* ------------------------- Sample request helpers ------------------------- */
+  // "Request sample" is offered on Linens & Disposables SKUs only. Selected
+  // SKU ids live in State.sampleRequests so they survive navigation; the email
+  // button opens a drafted mailto to the vendor contacts, cc'ing Awayday.
+  const sampleEligible = (s) => P.SAMPLE_CATEGORIES.includes(s.category);
+  const sampleRows = () => State.sampleRequests.map((id) => P.SKUS.find((s) => s.id === id)).filter(Boolean);
+  const sampleBtn = (s) => {
+    if (!sampleEligible(s)) return "";
+    const on = State.sampleRequests.includes(s.id);
+    return `<button class="btn ${on ? "btn-green" : "btn-outline"} btn-sm" data-sample="${esc(s.id)}" title="${on ? "Remove from the sample request email" : "Add to the sample request email"}">${on ? "✓ Sample added" : "🧪 Request sample"}</button>`;
+  };
+  const sampleEmailBtn = () => {
+    const rows = sampleRows();
+    const contacts = P.SAMPLE_CONTACTS.map((c) => c.name + " · " + c.company).join(", ");
+    if (!rows.length) {
+      return `<button class="btn btn-outline btn-sm" disabled title="Click “Request sample” on a Linens or Disposables SKU first">✉️ Email sample request</button>`;
+    }
+    return `<a class="btn btn-primary btn-sm" href="${esc(P.sampleRequestMailto(rows))}" title="Opens a drafted email to ${esc(contacts)} (cc ${esc(P.SAMPLE_CC)}) listing the ${rows.length} requested SKU sample(s)">✉️ Email sample request (${rows.length})</a>`;
+  };
+  function wireSampleButtons() {
+    document.querySelectorAll("[data-sample]").forEach((b) => b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = b.getAttribute("data-sample");
+      const i = State.sampleRequests.indexOf(id);
+      if (i >= 0) State.sampleRequests.splice(i, 1); else State.sampleRequests.push(id);
+      window.App.renderCurrent();
+    }));
+  }
 
   /* ============================== DASHBOARD ============================== */
   PAGES.dashboard = {
@@ -231,7 +261,8 @@
         <td class="num cell-strong text-green">${fmt.money(s.annualSavings)}</td>
         <td>${U.savingsBadge(s.savingsPercentage)}</td>
         <td>${U.statusBadge(s.implementationStatus)}</td>
-      </tr>`).join("") : `<tr><td colspan="13"><div class="empty">No SKUs match the current filters.</div></td></tr>`;
+        <td>${sampleBtn(s)}</td>
+      </tr>`).join("") : `<tr><td colspan="14"><div class="empty">No SKUs match the current filters.</div></td></tr>`;
 
       return `
       <div class="page-head"><h1>SKU Catalog</h1><p>Search and filter SKU-level pricing across every category, shop, and vendor. Click a row to open the side-by-side comparison.</p></div>
@@ -251,6 +282,7 @@
         <div>
           <div class="toolbar">
             <div class="search"><span class="si">🔍</span><input type="text" id="catalogSearch" placeholder="Search SKU, product, vendor, category…" value="${esc(f.search)}"></div>
+            ${sampleEmailBtn()}
             <button class="btn btn-outline btn-sm" id="exportCsv">⬇ Export CSV</button>
           </div>
           <div class="grid cols-4" style="margin-bottom:16px">
@@ -263,7 +295,7 @@
             <table class="data" style="min-width:1180px"><thead><tr>
               ${th("id", "SKU")}<th>Img</th>${th("productName", "Product")}<th>Category</th>${th("shopCode", "Shop")}<th>Vendor → Rec.</th>
               ${th("newUnitPrice", "Price / Each", "num")}<th class="num">UOM</th>${th("annualQuantity", "Annual Qty", "num")}
-              ${th("currentAnnualSpend", "Annual Spend", "num")}${th("annualSavings", "Savings", "num")}${th("savingsPercentage", "%", "")}${th("implementationStatus", "Status")}
+              ${th("currentAnnualSpend", "Annual Spend", "num")}${th("annualSavings", "Savings", "num")}${th("savingsPercentage", "%", "")}${th("implementationStatus", "Status")}<th>Sample</th>
             </tr></thead><tbody>${body}</tbody></table>
           </div>
         </div>
@@ -308,6 +340,7 @@
       }));
       const exp = document.getElementById("exportCsv");
       if (exp) exp.addEventListener("click", () => downloadCsv(P.skusToCsv(filteredSkus()), "sku-catalog.csv"));
+      wireSampleButtons();
     },
   };
 
@@ -479,13 +512,15 @@
           </li>`).join("")}</ul></div>`;
       } else {
         const rows = shop.rows.filter((r) => r.category === tab);
-        tabContent = rows.length ? `<div class="table-wrap"><table class="data" style="min-width:780px"><thead><tr>
-            <th>SKU</th><th>Product</th><th>Subcategory</th><th>Vendor → Rec.</th><th class="num">Current</th><th class="num">New</th><th class="num">Savings</th><th>%</th><th>Status</th>
+        const withSamples = P.SAMPLE_CATEGORIES.includes(tab);
+        tabContent = rows.length ? `${withSamples ? `<div class="toolbar" style="justify-content:flex-end">${sampleEmailBtn()}</div>` : ""}
+          <div class="table-wrap"><table class="data" style="min-width:780px"><thead><tr>
+            <th>SKU</th><th>Product</th><th>Subcategory</th><th>Vendor → Rec.</th><th class="num">Current</th><th class="num">New</th><th class="num">Savings</th><th>%</th><th>Status</th>${withSamples ? "<th>Sample</th>" : ""}
           </tr></thead><tbody>${rows.map((r) => `<tr class="row-link" onclick="location.hash='#/comparison/${r.id}'">
             <td class="mono">${esc(r.sku || r.id)}</td><td class="cell-strong">${esc(r.productName)}</td><td>${esc(r.subcategory)}</td>
             <td>${esc(r.currentVendor)}<div class="cell-sub">→ ${esc(r.recommendedVendor)}</div></td>
             <td class="num">${fmt.money(r.currentAnnualSpend)}</td><td class="num text-green">${fmt.money(r.newAnnualSpend)}</td>
-            <td class="num cell-strong text-green">${fmt.money(r.annualSavings)}</td><td>${U.savingsBadge(r.savingsPercentage)}</td><td>${U.statusBadge(r.implementationStatus)}</td>
+            <td class="num cell-strong text-green">${fmt.money(r.annualSavings)}</td><td>${U.savingsBadge(r.savingsPercentage)}</td><td>${U.statusBadge(r.implementationStatus)}</td>${withSamples ? `<td>${sampleBtn(r)}</td>` : ""}
           </tr>`).join("")}</tbody></table></div>` : `<div class="empty">No ${esc(tab)} SKUs assigned to ${esc(shop.shopName)}.</div>`;
       }
 
@@ -499,6 +534,7 @@
         State.shopTab = b.getAttribute("data-tab");
         window.App.renderCurrent();
       }));
+      wireSampleButtons();
     },
   };
 
@@ -588,6 +624,7 @@
           <div><b>Recommended savings opportunity:</b> switch to ${esc(sku.recommendedVendor)} to save
           <b>${fmt.money(sku.annualSavings)}</b> per year (${fmt.pct(sku.savingsPercentage)}) on ${esc(sku.productName)}.</div>
         </div>
+        ${sampleEligible(sku) ? `<div class="toolbar">${sampleBtn(sku)}${sampleEmailBtn()}</div>` : ""}
         <div class="compare-grid">
           ${col("Current Product", "current", {
             img: "📦", product: sku.productName, vendor: sku.currentVendor,
@@ -611,6 +648,7 @@
     mount() {
       const sel = document.getElementById("compareSelect");
       if (sel) sel.addEventListener("change", (e) => { location.hash = "#/comparison/" + e.target.value; });
+      wireSampleButtons();
     },
   };
 

@@ -767,6 +767,45 @@
     return rows.filter((r) => r.length > 1 || (r.length === 1 && r[0] !== ""));
   }
 
+  /* --------------------------- Vendor sample requests --------------------------- */
+  // Categories that support the "Request sample" workflow.
+  const SAMPLE_CATEGORIES = ["Linens", "Disposables"];
+  // Sample-request recipients. Update the email address here if the vendor
+  // contact changes — every Request Sample email drafts to this list.
+  const SAMPLE_CONTACTS = [
+    { name: "Mark M", company: "A1 American", email: "markm@a1american.com" },
+  ];
+  const SAMPLE_CC = "kdavis@awayday.com"; // Awayday procurement inbox, always cc'd
+
+  // Build a mailto: URL that opens a pre-drafted sample-request email listing
+  // the given SKUs, addressed to the vendor contacts and cc'ing Awayday.
+  function sampleRequestMailto(rows) {
+    const to = SAMPLE_CONTACTS.map((c) => c.email).join(",");
+    const firstNames = SAMPLE_CONTACTS.map((c) => c.name.split(" ")[0]).join(", ");
+    const plural = rows.length === 1 ? "" : "s";
+    const subject = "Sample request — " + rows.length + " SKU" + plural + " (Linens & Disposables)";
+    const lines = rows.map((s, i) =>
+      (i + 1) + ". " + (s.sku || s.id) + " — " + s.productName +
+      " (" + s.subcategory + " · " + s.packSize + " · " + s.unitOfMeasure + ")" +
+      (s.shop ? " — for " + s.shop : ""));
+    const body = [
+      "Hi " + firstNames + ",",
+      "",
+      "We would like to request product samples for the following SKU" + plural + ":",
+      "",
+      ...lines,
+      "",
+      "Please confirm sample availability and expected lead times, and ship to the attention of the Awayday procurement team.",
+      "",
+      "Thank you,",
+      "Awayday Procurement",
+    ].join("\n");
+    return "mailto:" + to +
+      "?cc=" + encodeURIComponent(SAMPLE_CC) +
+      "&subject=" + encodeURIComponent(subject) +
+      "&body=" + encodeURIComponent(body);
+  }
+
   /* -------------------------------- Formatters -------------------------------- */
   const fmtMoney = (n, dec = 0) => "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec });
   const fmtMoneyShort = (n) => {
@@ -813,6 +852,10 @@
     CSV_TEMPLATE_COLUMNS,
     skusToCsv,
     parseCsv,
+    SAMPLE_CATEGORIES,
+    SAMPLE_CONTACTS,
+    SAMPLE_CC,
+    sampleRequestMailto,
     topVendor,
     groupStatus,
     fmt: { money: fmtMoney, moneyShort: fmtMoneyShort, pct: fmtPct, num: fmtNum },
