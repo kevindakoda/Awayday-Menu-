@@ -734,7 +734,7 @@
     v("ed_save").addEventListener("click", () => {
       const brandSel = v("ed_brand").value;
       const brand = P.SHOPS.find((b) => b.code === brandSel);
-      P.updateSku(s.id, {
+      const updated = P.updateSku(s.id, {
         productName: v("ed_productName").value.trim() || s.productName,
         description: v("ed_description").value.trim(),
         category: v("ed_category").value,
@@ -757,6 +757,10 @@
       });
       close();
       if (onSave) onSave();
+      // Persist this single SKU edit to the database.
+      if (updated && window.Store && window.Store.available()) {
+        window.Store.upsertSku(updated).catch((e) => alert("Saved in this session, but the database update failed: " + (e.message || e)));
+      }
     });
   }
 
@@ -960,9 +964,16 @@
         });
         return used;
       };
-      const finishImport = (res, label) => {
+      const finishImport = async (res, label) => {
         refreshDataset();
-        setStatus(`✅ ${label}: imported <b>${res.added}</b> SKU(s)${res.brandsCreated ? `, created <b>${res.brandsCreated}</b> new brand(s)` : ""}. Catalog now has ${res.totalSkus} SKU(s) across ${res.totalBrands} brand(s). Review and edit below.`, "ok");
+        const summary = `imported <b>${res.added}</b> SKU(s)${res.brandsCreated ? `, created <b>${res.brandsCreated}</b> new brand(s)` : ""}. Catalog now has ${res.totalSkus} SKU(s) across ${res.totalBrands} brand(s)`;
+        if (window.Store && window.Store.available()) {
+          setStatus(`✅ ${label}: ${summary}. 💾 Saving to database…`, "ok");
+          try { await window.Store.pushAll(); setStatus(`✅ ${label}: ${summary} — saved to the database. Review and edit below.`, "ok"); }
+          catch (e) { setStatus(`⚠️ ${label}: ${summary} in this session, but saving to the database failed: ${esc(e.message)}`, "err"); }
+        } else {
+          setStatus(`✅ ${label}: ${summary} (session only). Review and edit below.`, "ok");
+        }
       };
       const processSheet = async (file) => {
         setStatus("⏳ Reading spreadsheet…");
@@ -970,7 +981,7 @@
         const records = rows.map(rowToRecord).filter((r) => r.productName);
         if (!records.length) { setStatus("No product rows found. Make sure the first row has column headers like Product Name, Current Price, Brand.", "err"); return; }
         const used = await fillCategories(records);
-        finishImport(P.importRecords(records), used === "offline" ? "Spreadsheet (offline categorizer)" : "Spreadsheet + AI");
+        await finishImport(P.importRecords(records), used === "offline" ? "Spreadsheet (offline categorizer)" : "Spreadsheet + AI");
       };
       const processOcr = async (file) => {
         setStatus("🤖 Claude is reading the document (OCR)… this can take a few seconds.");
@@ -991,7 +1002,7 @@
         })).filter((r) => r.productName);
         if (!records.length) { setStatus("Claude didn't find any product line items in that file.", "err"); return; }
         await fillCategories(records);
-        finishImport(P.importRecords(records), "Claude OCR");
+        await finishImport(P.importRecords(records), "Claude OCR");
       };
       const processRawFile = async (file) => {
         if (!file) return;
@@ -1018,8 +1029,9 @@
         reader.onload = () => {
           const result = importCsv(reader.result);
           const el = document.getElementById("importResult2");
-          if (el) el.innerHTML = `<div class="notice" style="background:var(--green-bg);border-color:#bfe6cd;color:var(--green-700)">✅ Imported. ${result.added} added, ${result.updated} updated. Catalog now has ${P.SKUS.length} SKUs.</div>`;
+          if (el) el.innerHTML = `<div class="notice" style="background:var(--green-bg);border-color:#bfe6cd;color:var(--green-700)">✅ Imported. ${result.added} added, ${result.updated} updated. Catalog now has ${P.SKUS.length} SKUs.${window.Store && window.Store.available() ? " 💾 Saving…" : ""}</div>`;
           refreshDataset();
+          if (window.Store && window.Store.available()) window.Store.pushAll().then(() => { if (el) el.innerHTML = el.innerHTML.replace("💾 Saving…", "💾 Saved."); }).catch((e) => { if (el) el.innerHTML += `<div class="text-red">⚠️ DB save failed: ${esc(e.message)}</div>`; });
         };
         reader.readAsText(f); csv2.value = "";
       });
@@ -1063,7 +1075,9 @@
           preferredItem: g("adPref").checked, contractedItem: g("adContract").checked, imageUrl: "", notes: "Added via admin console.",
         };
         P.SKUS.push(sku);
+        refreshDataset();
         g("addResult").innerHTML = `<div class="notice" style="background:var(--green-bg);border-color:#bfe6cd;color:var(--green-700)">✅ ${esc(sku.id)} added. AI suggested <b>${esc(ai.category)} · ${esc(ai.subcategory)}</b> (${esc(ai.confidence)}).</div>`;
+        if (window.Store && window.Store.available()) window.Store.upsertSku(sku).catch((e) => { g("addResult").innerHTML += `<div class="text-red" style="margin-top:6px">⚠️ Database save failed: ${esc(e.message)}</div>`; });
       });
       dl("addCat", () => {
         const c = document.getElementById("newCat").value.trim(), s = document.getElementById("newSub").value.trim();
@@ -1078,14 +1092,17 @@
       });
 
       // ---- Dataset: load sample / clear all ----
-      dl("loadSample", () => {
-        P.loadSampleData();
-        if (window.App && window.App.renderCurrent) window.App.renderCurrent();
-      });
-      dl("clearData", () => {
-        if (!confirm("Remove ALL brands and SKUs? This cannot be undone (you can reload sample data afterwards).")) return;
+      const persistBulk = async (verb) => {
+        if (!(window.Store && window.Store.available())) { if (window.App) window.App.renderCurrent(); return; }
+        setStatus(`💾 ${verb} and saving to database…`, "ok");
+        try { await window.Store.pushAll(); } catch (e) { alert("Applied in this session, but the database write failed: " + (e.message || e)); }
+        if (window.App) window.App.renderCurrent();
+      };
+      dl("loadSample", async () => { P.loadSampleData(); await persistBulk("Loaded sample data"); });
+      dl("clearData", async () => {
+        if (!confirm("Remove ALL brands and SKUs (including saved data in the database)? You can reload sample data afterwards.")) return;
         P.clearAll();
-        if (window.App && window.App.renderCurrent) window.App.renderCurrent();
+        await persistBulk("Cleared all data");
       });
 
       // ---- Brand (shop / property) create + edit ----
@@ -1108,7 +1125,12 @@
         const el = document.getElementById("brandResult");
         if (!res.ok) { el.innerHTML = `<span class="text-red">${esc(res.error)}</span>`; return; }
         rebuildBrandOptions(res.brand.code);
+        refreshDataset();
         el.innerHTML = `<div class="notice" style="background:var(--green-bg);border-color:#bfe6cd;color:var(--green-700)">✅ Brand <b>${esc(res.brand.shopName)}</b> (${esc(res.brand.code)}) ${res.mode}. Brands: ${P.SHOPS.length}.</div>`;
+        // A rename fans out to every SKU on that brand, so persist full state.
+        if (window.Store && window.Store.available()) {
+          window.Store.pushAll().catch((e) => { el.innerHTML += `<div class="text-red" style="margin-top:6px">⚠️ Database save failed: ${esc(e.message)}</div>`; });
+        }
       });
     },
   };

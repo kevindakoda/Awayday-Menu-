@@ -125,9 +125,16 @@
 
   // The app only renders once auth.js confirms a session and calls start().
   let started = false;
-  function start() {
+  async function start() {
     started = true;
     if (!location.hash) location.hash = "#/dashboard";
+    // Hydrate the in-memory model from Supabase before the first render so
+    // previously uploaded/edited data is present. Falls back to in-memory.
+    if (window.Store && window.Store.available && window.Store.available()) {
+      const content = document.getElementById("content");
+      if (content) content.innerHTML = `<div class="empty" style="padding:60px;text-align:center">⏳ Loading procurement data…</div>`;
+      try { await window.Store.loadAll(); } catch (e) { console.error("Data load failed:", e); }
+    }
     renderCurrent();
   }
 
