@@ -291,6 +291,40 @@
     return best;
   }
 
+  // Roll a detailed category (e.g. "Bath Linens") up into one of the broad
+  // taxonomy buckets. Matches on the category, subcategory, and product name.
+  function categoryGroupOf(category, subcategory, name) {
+    const t = ((category || "") + " " + (subcategory || "") + " " + (name || "")).toLowerCase();
+    if (/linen|towel|sheet|pillow|duvet|blanket|bath ?mat|wash ?cloth|terry|coverlet|\bsham\b|\brobe|bedding|matelass|frette|sateen|percale/.test(t)) return "Linens";
+    if (/disposable|\bpaper\b|napkin|tissue|\bcup\b|amenit|toiletr|\bsoap|shampoo|conditioner|lotion|can liner|trash ?bag|\bliner\b|glove|single.?use|toilet ?paper|facial|coaster|stir|straw/.test(t)) return "Disposables";
+    if (/rental|\brent\b/.test(t)) return "Rentals";
+    if (/door ?lock|smart ?lock|dead ?bolt|rfid|keyless|key ?card/.test(t)) return "Locks";
+    if (/\btech|tablet|\btv\b|wifi|router|smart |device|electronic|thermostat|streaming/.test(t)) return "Technology";
+    if (/suppl|cleaning|janitor|chemical|equipment|hanger|\biron\b|coffee|\bkitchen|guest ?supply|vacuum|\bmop\b|broom|detergent/.test(t)) return "Supplies";
+    return "Other";
+  }
+
+  // Aggregated tiles by broad category group (for dashboard + category menu).
+  function categoryGroups() {
+    const present = Array.from(new Set(SKUS.map((s) => s.categoryGroup)));
+    const ordered = CATEGORY_ORDER.filter((c) => present.includes(c)).concat(present.filter((c) => !CATEGORY_ORDER.includes(c)));
+    return ordered.map((name) => {
+      const rows = SKUS.filter((s) => s.categoryGroup === name);
+      const meta = CATEGORY_META[name] || { icon: "📦", color: "#1e3a5f" };
+      return { categoryName: name, ...aggregate(rows), topVendors: rows.length ? [topVendor(rows)] : [], status: rows.length ? groupStatus(rows) : "Not Reviewed", icon: meta.icon, color: meta.color };
+    });
+  }
+
+  // The detailed categories that fall under one broad group.
+  function categoriesInGroup(group) {
+    const present = {};
+    SKUS.filter((s) => s.categoryGroup === group).forEach((s) => { (present[s.category] = present[s.category] || []).push(s); });
+    return Object.keys(present).map((cat) => {
+      const rows = present[cat];
+      return { categoryName: cat, ...aggregate(rows), recommendedSupplier: topVendor(rows), status: groupStatus(rows), rows };
+    }).sort((a, b) => b.savingsOpportunity - a.savingsOpportunity);
+  }
+
   function categories() {
     const cats = CATEGORY_ORDER;
     return cats.map((name) => {
@@ -419,6 +453,9 @@
       productName: f.productName || "Unnamed item",
       description: f.description || f.productName || "",
       category: f.category || "Other",
+      // Broad bucket used for tiles/tabs/reports; the detailed `category`
+      // (e.g. "Bath Linens") is kept and shown one level down.
+      categoryGroup: f.categoryGroup || categoryGroupOf(f.category, f.subcategory, f.productName),
       subcategory: f.subcategory || "Miscellaneous",
       currentVendor: f.currentVendor || "Current Local Vendor",
       recommendedVendor: f.recommendedVendor || "—",
@@ -861,6 +898,9 @@
     nextContractId,
     aggregate,
     categories,
+    categoryGroupOf,
+    categoryGroups,
+    categoriesInGroup,
     subcategoriesFor,
     shops,
     upsertBrand,
