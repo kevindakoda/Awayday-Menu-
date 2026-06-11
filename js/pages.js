@@ -789,7 +789,7 @@
 
       <div class="grid cols-2">
         <div class="card"><h3 class="card-title">🤖 Upload raw files — AI extraction</h3>
-          <p class="text-muted" style="font-size:12.5px;margin:0 0 10px">Drop an Excel/CSV sheet <b>or</b> a photo/scan/PDF of a price list or invoice. Claude reads it and fills in category, suppliers, SKU, baseline &amp; future spend, and more — review and edit below.</p>
+          <p class="text-muted" style="font-size:12.5px;margin:0 0 10px">Drop an Excel/CSV sheet <b>or</b> a photo/scan/PDF of a price list or invoice. Multi-tab workbooks are fully supported — every product tab is scanned, the header row is detected automatically, section/subtotal rows are ignored, and SKUs repeated across tabs are merged. Claude fills in category, suppliers, SKU, baseline &amp; future spend, and more — review and edit below.</p>
           <div class="drop-zone" id="dropZone"><div class="di">📄</div><div style="margin:8px 0">Drag &amp; drop a file, or</div>
             <label class="btn btn-primary btn-sm">Choose file<input type="file" id="rawFile" accept=".csv,.xlsx,.xls,.png,.jpg,.jpeg,.webp,.gif,.pdf" hidden></label>
             <div class="cell-sub" style="margin-top:8px">.xlsx · .csv · images · .pdf</div>
@@ -891,55 +891,110 @@
 
       // ---- Raw-file upload pipeline (Excel/CSV + image/PDF OCR via Claude) ----
       const num = (v) => { const n = parseFloat(String(v == null ? "" : v).replace(/[^0-9.\-]/g, "")); return isNaN(n) ? 0 : n; };
+      // Collapse newlines/repeated spaces in a header label so "Current\nPrice"
+      // and "Current Price" resolve to the same key.
+      const normKey = (h) => String(h == null ? "" : h).replace(/\s+/g, " ").trim().toLowerCase();
       const csvToObjects = (text) => {
         const rows = P.parseCsv(text);
         if (!rows.length) return [];
         const header = rows[0].map((h) => String(h).trim());
         return rows.slice(1)
           .filter((r) => r.some((c) => String(c).trim() !== ""))
-          .map((r) => { const o = {}; header.forEach((h, i) => { o[h] = r[i] !== undefined ? r[i] : ""; }); return o; });
+          .map((r) => { const o = { __sheet: "CSV" }; header.forEach((h, i) => { o[h] = r[i] !== undefined ? r[i] : ""; }); return o; });
+      };
+      // Column names that identify the product name/description and the
+      // brand/shop. Used to locate the header row and to tell real product rows
+      // from section/subtotal rows.
+      const NAME_KEYS = ["description", "product name", "product", "item name", "item", "sku description", "name"];
+      const BRAND_KEYS = ["property", "shop", "brand", "property name"];
+      // A row is the header row if it has a name column, a money/qty column, and
+      // at least three recognizable headers overall.
+      const looksLikeHeader = (cells) => {
+        const keys = (cells || []).map(normKey).filter(Boolean);
+        if (keys.length < 3) return false;
+        const hasName = keys.some((k) => NAME_KEYS.includes(k) || k === "sku");
+        const hasMoney = keys.some((k) => /(price|spend|qty|quantity|savings)/.test(k));
+        const hits = keys.filter((k) => /(price|spend|qty|quantity|savings|category|sku|description|product|item|property|shop|brand|vendor|distributor)/.test(k)).length;
+        return hasName && hasMoney && hits >= 3;
+      };
+      const valByKeys = (header, cells, names) => {
+        for (const n of names) { const j = header.indexOf(n); if (j !== -1 && String(cells[j] == null ? "" : cells[j]).trim() !== "") return String(cells[j]).trim(); }
+        return "";
+      };
+      // Pull product rows out of one worksheet grid (array-of-arrays). Detects
+      // the header row, carries the brand/property down from section header rows,
+      // and skips section headers, subtotal and grand-total rows. Returns the
+      // rows found plus a `reason` when a sheet that looked like data was skipped.
+      const extractSheet = (grid, sheetName) => {
+        let hi = -1;
+        for (let i = 0; i < Math.min(grid.length, 25); i++) { if (looksLikeHeader(grid[i])) { hi = i; break; } }
+        if (hi === -1) return { rows: [] }; // not a product tab — silently ignore
+        const header = grid[hi].map(normKey);
+        if (!BRAND_KEYS.some((k) => header.includes(k))) return { rows: [], reason: "no Shop/Brand/Property column" };
+        const rows = [];
+        let carried = "";
+        for (let i = hi + 1; i < grid.length; i++) {
+          const cells = grid[i] || [];
+          if (!cells.some((c) => String(c == null ? "" : c).trim() !== "")) continue;
+          const name = valByKeys(header, cells, NAME_KEYS);
+          const brand = valByKeys(header, cells, BRAND_KEYS);
+          if (/(subtotal|grand total|^total\b)/i.test(name) || /(subtotal|grand total|^total\b)/i.test(brand)) continue;
+          if (brand && !name) { carried = brand; continue; } // section header → remember its brand
+          if (!name) continue; // not a product row
+          const o = { __sheet: sheetName, __brand: brand || carried };
+          header.forEach((h, j) => { if (h && o[h] === undefined) o[h] = cells[j] !== undefined ? cells[j] : ""; });
+          rows.push(o);
+        }
+        return { rows };
       };
       const readSheet = (file) => new Promise((resolve, reject) => {
         const name = (file.name || "").toLowerCase();
         const r = new FileReader();
         r.onerror = () => reject(new Error("Could not read the file."));
         if (name.endsWith(".csv") || file.type === "text/csv") {
-          r.onload = () => resolve(csvToObjects(String(r.result)));
+          r.onload = () => resolve({ rows: csvToObjects(String(r.result)), skipped: [] });
           r.readAsText(file);
         } else {
           r.onload = () => {
             if (!window.XLSX) { reject(new Error("Spreadsheet library failed to load. Check your connection and retry.")); return; }
             const wb = window.XLSX.read(new Uint8Array(r.result), { type: "array" });
-            const ws = wb.Sheets[wb.SheetNames[0]];
-            resolve(window.XLSX.utils.sheet_to_json(ws, { defval: "" }));
+            const rows = [], skipped = [];
+            wb.SheetNames.forEach((sn) => {
+              const grid = window.XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: "", blankrows: false });
+              const res = extractSheet(grid, sn);
+              res.rows.forEach((row) => rows.push(row));
+              if (res.reason) skipped.push({ name: sn, reason: res.reason });
+            });
+            resolve({ rows, skipped });
           };
           r.readAsArrayBuffer(file);
         }
       });
       const rowToRecord = (row) => {
-        const o = {}; Object.keys(row).forEach((k) => { o[String(k).trim().toLowerCase()] = row[k]; });
+        const o = {}; Object.keys(row).forEach((k) => { o[normKey(k)] = row[k]; });
         const g = (names) => { for (const n of names) { if (o[n] !== undefined && String(o[n]).trim() !== "") return String(o[n]).trim(); } return ""; };
-        const qty = num(g(["annual quantity", "annual qty", "quantity", "qty", "volume", "annual volume"]));
-        let cur = num(g(["current unit price", "current price", "old price", "baseline price", "list price", "unit price", "price"]));
-        let nw = num(g(["new unit price", "new price", "negotiated price", "quoted price", "proposed price", "future price"]));
-        const baseSpend = num(g(["baseline spend", "current annual spend", "current spend", "annual spend"]));
-        const futSpend = num(g(["future spend", "new annual spend", "negotiated spend", "projected spend"]));
+        const qty = num(g(["annual quantity", "annual qty", "quantity", "qty", "qty (units)", "units", "volume", "annual volume"]));
+        let cur = num(g(["current unit price", "current price", "original price", "updated current price (hosp depot)", "bl wavg $/ea", "bl max $/ea", "old price", "baseline price", "list price", "unit price", "price"]));
+        let nw = num(g(["new unit price", "a1 price", "new price", "winning b $/ea", "winning bid $/ea", "negotiated price", "quoted price", "proposed price", "future price", "price each"]));
+        const baseSpend = num(g(["baseline spend", "baseline wavg ($)", "baseline max ($)", "current annual spend", "current spend", "annual spend"]));
+        const futSpend = num(g(["future spend", "a1 spend", "new annual spend", "new spend ($)", "negotiated spend", "projected spend"]));
         if (!cur && baseSpend && qty) cur = P.round(baseSpend / qty);
         if (!nw && futSpend && qty) nw = P.round(futSpend / qty);
         return {
           id: g(["sku", "sku id", "item number", "item #", "product code"]) || undefined,
           productName: g(["product name", "product", "item", "item name", "name", "description", "sku description"]),
           description: g(["description", "details", "long description"]),
-          brand: g(["brand", "shop", "property", "location", "hotel", "site"]),
+          brand: g(["brand", "shop", "property", "property name", "location", "hotel", "site"]) || (o["__brand"] ? String(o["__brand"]).trim() : ""),
           region: g(["region", "area", "market"]),
           currentVendor: g(["current vendor", "existing vendor", "incumbent vendor", "current supplier"]),
-          recommendedVendor: g(["recommended vendor", "new vendor", "supplier", "vendor", "proposed vendor"]),
+          recommendedVendor: g(["recommended vendor", "new vendor", "winning vendor", "supplier", "vendor", "distributor", "proposed vendor"]),
           currentUnitPrice: cur, newUnitPrice: nw, annualQuantity: qty,
           unitOfMeasure: g(["uom", "unit of measure", "unit"]),
           packSize: g(["pack size", "pack", "case pack"]),
           category: g(["category"]),
           subcategory: g(["subcategory", "sub category", "sub-category"]),
           qualityTier: g(["quality tier", "tier", "grade"]),
+          _sheet: row.__sheet || "",
         };
       };
       const fillCategories = async (records) => {
@@ -975,13 +1030,46 @@
           setStatus(`✅ ${label}: ${summary} (session only). Review and edit below.`, "ok");
         }
       };
+      // How "complete" a record is — used to keep the richest copy when the same
+      // SKU shows up on more than one tab.
+      const recScore = (r) => (r.currentUnitPrice > 0 ? 1 : 0) + (r.newUnitPrice > 0 ? 1 : 0) + (r.annualQuantity > 0 ? 1 : 0) + (r.id ? 1 : 0);
       const processSheet = async (file) => {
-        setStatus("⏳ Reading spreadsheet…");
-        const rows = await readSheet(file);
+        setStatus("⏳ Reading every tab…");
+        const { rows, skipped } = await readSheet(file);
         const records = rows.map(rowToRecord).filter((r) => r.productName);
-        if (!records.length) { setStatus("No product rows found. Make sure the first row has column headers like Product Name, Current Price, Brand.", "err"); return; }
-        const used = await fillCategories(records);
-        await finishImport(P.importRecords(records), used === "offline" ? "Spreadsheet (offline categorizer)" : "Spreadsheet + AI");
+        if (!records.length) {
+          const hint = (skipped && skipped.length)
+            ? ` Tabs that looked like data were skipped because they have ${esc(skipped[0].reason)} — add a Shop/Brand/Property column.`
+            : " Each product tab needs a header row with columns like Description/Product Name, a price (e.g. Current Price or A1 Price), Qty, and a Shop/Brand/Property column.";
+          setStatus("No product rows found." + hint, "err");
+          return;
+        }
+        // Per-tab tally before de-duplication.
+        const byTab = {};
+        records.forEach((r) => { const t = (r._sheet || "Sheet").trim(); byTab[t] = (byTab[t] || 0) + 1; });
+        // Collapse rows that repeat across tabs — same brand, SKU, product, AND
+        // the same quantity and pricing. Quantity/price are part of the key on
+        // purpose: a shop can legitimately list the same SKU more than once at
+        // different volumes/prices, and those are distinct line items, not dupes.
+        const r3 = (n) => Math.round((+n || 0) * 1000) / 1000;
+        const seen = new Map();
+        const deduped = [];
+        records.forEach((r) => {
+          const key = [(r.brand || "").toLowerCase().replace(/\s+/g, " ").trim(),
+                       (r.id || "").toLowerCase().trim(),
+                       (r.productName || "").toLowerCase().replace(/\s+/g, " ").trim(),
+                       r3(r.annualQuantity), r3(r.currentUnitPrice), r3(r.newUnitPrice)].join("|");
+          const prev = seen.get(key);
+          if (prev === undefined) { seen.set(key, deduped.length); deduped.push(r); return; }
+          if (recScore(r) > recScore(deduped[prev])) deduped[prev] = r;
+        });
+        const dupes = records.length - deduped.length;
+        const tabs = Object.keys(byTab);
+        const tabList = tabs.slice(0, 8).map((t) => `${esc(t)} (${byTab[t]})`).join(", ") + (tabs.length > 8 ? `, +${tabs.length - 8} more` : "");
+        setStatus(`⏳ Found ${records.length} product row(s) across ${tabs.length} tab(s): ${tabList}.${dupes ? ` Merging ${dupes} duplicate(s) → ${deduped.length} unique SKU(s).` : ""}${skipped && skipped.length ? ` Skipped ${skipped.length} non-product tab(s).` : ""} Categorizing…`);
+        const used = await fillCategories(deduped);
+        const label = `${used === "offline" ? "Spreadsheet (offline categorizer)" : "Spreadsheet + AI"} · ${tabs.length} tab(s)${dupes ? `, ${dupes} duplicate row(s) merged` : ""}`;
+        await finishImport(P.importRecords(deduped), label);
       };
       const processOcr = async (file) => {
         setStatus("🤖 Claude is reading the document (OCR)… this can take a few seconds.");
