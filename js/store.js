@@ -20,6 +20,7 @@
   function skuToRow(s) {
     return {
       id: s.id,
+      sku: s.sku || "",
       product_name: s.productName || "",
       description: s.description || "",
       category: s.category || "Other",
@@ -46,6 +47,7 @@
     // Run through makeSku so computed spend/savings fields are populated.
     return P.makeSku({
       id: r.id,
+      sku: r.sku,
       productName: r.product_name,
       description: r.description,
       category: r.category,

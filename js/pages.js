@@ -176,7 +176,7 @@
     const f = State.catalog;
     let rows = P.SKUS.slice();
     const q = f.search.trim().toLowerCase();
-    if (q) rows = rows.filter((s) => (s.id + " " + s.productName + " " + s.currentVendor + " " + s.recommendedVendor + " " + s.category + " " + s.subcategory).toLowerCase().includes(q));
+    if (q) rows = rows.filter((s) => (s.id + " " + (s.sku || "") + " " + s.productName + " " + s.currentVendor + " " + s.recommendedVendor + " " + s.category + " " + s.subcategory).toLowerCase().includes(q));
     if (f.category) rows = rows.filter((s) => s.category === f.category);
     if (f.subcategory) rows = rows.filter((s) => s.subcategory === f.subcategory);
     if (f.shop) rows = rows.filter((s) => s.shopCode === f.shop);
@@ -214,7 +214,7 @@
       const th = (col, label, cls) => `<th class="sortable ${cls || ""}" data-sort="${col}">${label}${sortIcon(col)}</th>`;
 
       const body = rows.length ? rows.map((s) => `<tr class="row-link" data-sku="${s.id}">
-        <td><span class="mono">${s.id}</span></td>
+        <td><span class="mono">${esc(s.sku || s.id)}</span></td>
         <td><div class="prod-img" style="height:34px;width:34px;border-radius:7px;font-size:15px;display:inline-grid;vertical-align:middle">📦</div></td>
         <td>
           <div class="cell-strong">${esc(s.productName)}</div>
@@ -482,7 +482,7 @@
         tabContent = rows.length ? `<div class="table-wrap"><table class="data" style="min-width:780px"><thead><tr>
             <th>SKU</th><th>Product</th><th>Subcategory</th><th>Vendor → Rec.</th><th class="num">Current</th><th class="num">New</th><th class="num">Savings</th><th>%</th><th>Status</th>
           </tr></thead><tbody>${rows.map((r) => `<tr class="row-link" onclick="location.hash='#/comparison/${r.id}'">
-            <td class="mono">${r.id}</td><td class="cell-strong">${esc(r.productName)}</td><td>${esc(r.subcategory)}</td>
+            <td class="mono">${esc(r.sku || r.id)}</td><td class="cell-strong">${esc(r.productName)}</td><td>${esc(r.subcategory)}</td>
             <td>${esc(r.currentVendor)}<div class="cell-sub">→ ${esc(r.recommendedVendor)}</div></td>
             <td class="num">${fmt.money(r.currentAnnualSpend)}</td><td class="num text-green">${fmt.money(r.newAnnualSpend)}</td>
             <td class="num cell-strong text-green">${fmt.money(r.annualSavings)}</td><td>${U.savingsBadge(r.savingsPercentage)}</td><td>${U.statusBadge(r.implementationStatus)}</td>
@@ -666,7 +666,7 @@
       return `<div class="empty" style="padding:26px;text-align:center">No SKUs to show. Upload a file above or load sample data.</div>`;
     }
     const rows = skus.map((s) => `<tr>
-      <td><span class="cell-strong">${esc(s.productName)}</span><div class="cell-sub">${esc(s.id)} · ${esc(s.category)} › ${esc(s.subcategory)}</div></td>
+      <td><span class="cell-strong">${esc(s.productName)}</span><div class="cell-sub">${esc(s.sku || s.id)} · ${esc(s.category)} › ${esc(s.subcategory)}</div></td>
       <td>${esc(s.shop || "—")}</td>
       <td><div>${esc(s.recommendedVendor || "—")}</div><div class="cell-sub">was ${esc(s.currentVendor || "—")}</div></td>
       <td class="num">${fmt.money(s.currentAnnualSpend)}</td>
@@ -694,7 +694,7 @@
     const tierOpts = ["Economy", "Standard", "Luxury"].map((t) => `<option ${t === s.qualityTier ? "selected" : ""}>${esc(t)}</option>`).join("");
     const f = (label, inner) => `<div class="field"><label>${label}</label>${inner}</div>`;
     overlay.innerHTML = `<div class="modal">
-      <div class="modal-head"><h3>Edit SKU · ${esc(s.id)}</h3><button class="modal-x" data-close>✕</button></div>
+      <div class="modal-head"><h3>Edit SKU · ${esc(s.sku || s.id)}</h3><button class="modal-x" data-close>✕</button></div>
       <div class="modal-body">
         ${f("Product name", `<input type="text" id="ed_productName" value="${esc(s.productName)}">`)}
         ${f("Description", `<input type="text" id="ed_description" value="${esc(s.description || "")}">`)}
@@ -885,7 +885,7 @@
         const q = (document.getElementById("skuSearch") || {}).value || "";
         const t = q.trim().toLowerCase();
         if (!t) return P.SKUS;
-        return P.SKUS.filter((s) => [s.id, s.productName, s.category, s.subcategory, s.recommendedVendor, s.currentVendor, s.shop]
+        return P.SKUS.filter((s) => [s.id, s.sku, s.productName, s.category, s.subcategory, s.recommendedVendor, s.currentVendor, s.shop]
           .some((v) => String(v || "").toLowerCase().includes(t)));
       };
 
@@ -981,7 +981,7 @@
         if (!cur && baseSpend && qty) cur = P.round(baseSpend / qty);
         if (!nw && futSpend && qty) nw = P.round(futSpend / qty);
         return {
-          id: g(["sku", "sku id", "item number", "item #", "product code"]) || undefined,
+          sku: g(["sku", "sku id", "item number", "item #", "product code", "a1 sku"]),
           productName: g(["product name", "product", "item", "item name", "name", "description", "sku description"]),
           description: g(["description", "details", "long description"]),
           brand: g(["brand", "shop", "property", "property name", "location", "hotel", "site"]) || (o["__brand"] ? String(o["__brand"]).trim() : ""),
@@ -1032,7 +1032,7 @@
       };
       // How "complete" a record is — used to keep the richest copy when the same
       // SKU shows up on more than one tab.
-      const recScore = (r) => (r.currentUnitPrice > 0 ? 1 : 0) + (r.newUnitPrice > 0 ? 1 : 0) + (r.annualQuantity > 0 ? 1 : 0) + (r.id ? 1 : 0);
+      const recScore = (r) => (r.currentUnitPrice > 0 ? 1 : 0) + (r.newUnitPrice > 0 ? 1 : 0) + (r.annualQuantity > 0 ? 1 : 0) + (r.sku ? 1 : 0);
       const processSheet = async (file) => {
         setStatus("⏳ Reading every tab…");
         const { rows, skipped } = await readSheet(file);
@@ -1056,7 +1056,7 @@
         const deduped = [];
         records.forEach((r) => {
           const key = [(r.brand || "").toLowerCase().replace(/\s+/g, " ").trim(),
-                       (r.id || "").toLowerCase().trim(),
+                       (r.sku || "").toLowerCase().trim(),
                        (r.productName || "").toLowerCase().replace(/\s+/g, " ").trim(),
                        r3(r.annualQuantity), r3(r.currentUnitPrice), r3(r.newUnitPrice)].join("|");
           const prev = seen.get(key);
@@ -1068,7 +1068,10 @@
         const tabList = tabs.slice(0, 8).map((t) => `${esc(t)} (${byTab[t]})`).join(", ") + (tabs.length > 8 ? `, +${tabs.length - 8} more` : "");
         setStatus(`⏳ Found ${records.length} product row(s) across ${tabs.length} tab(s): ${tabList}.${dupes ? ` Merging ${dupes} duplicate(s) → ${deduped.length} unique SKU(s).` : ""}${skipped && skipped.length ? ` Skipped ${skipped.length} non-product tab(s).` : ""} Categorizing…`);
         const used = await fillCategories(deduped);
-        const label = `${used === "offline" ? "Spreadsheet (offline categorizer)" : "Spreadsheet + AI"} · ${tabs.length} tab(s)${dupes ? `, ${dupes} duplicate row(s) merged` : ""}`;
+        const aiNote = used === "Claude" ? "Spreadsheet + Claude AI categorization"
+          : used === "offline" ? "Spreadsheet (offline categorizer — Claude unavailable)"
+          : "Spreadsheet (rows already categorized, no AI needed)";
+        const label = `${aiNote} · ${tabs.length} tab(s)${dupes ? `, ${dupes} duplicate row(s) merged` : ""}`;
         await finishImport(P.importRecords(deduped), label);
       };
       const processOcr = async (file) => {
