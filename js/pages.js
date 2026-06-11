@@ -35,6 +35,7 @@
     crumb: "Dashboard",
     render() {
       const cats = P.categoryGroups();
+      const dq = P.dataQuality();
       const totals = P.aggregate(P.SKUS);
       const vendorCount = P.VENDORS.length;
       const shops = P.shops();
@@ -92,6 +93,19 @@
 
       <div class="grid cols-4">${kpis.join("")}</div>
       <div class="grid cols-4" style="margin-top:16px">${kpis2.join("")}</div>
+
+      ${P.SKUS.length && (dq.counts.negative + dq.counts.missingPrice + dq.counts.missingQty + dq.counts.outliers) ? `
+      <div class="card" style="margin-top:18px;border-left:3px solid var(--amber, #d97706)">
+        <h3 class="card-title">🔎 Data quality &amp; anomalies</h3>
+        <div class="tag-cats" style="margin-bottom:10px">
+          <span class="badge red">${dq.counts.negative} price increase(s)</span>
+          <span class="badge amber">${dq.counts.missingPrice} missing price</span>
+          <span class="badge amber">${dq.counts.missingQty} missing qty</span>
+          <span class="badge navy">${dq.counts.outliers} price outlier(s)</span>
+        </div>
+        ${dq.negative.length ? `<div class="cell-sub" style="margin-bottom:4px">Negotiated price is <b>higher</b> than current (renegotiate or re-check):</div>
+        <div class="table-wrap" style="border:none"><table class="data" style="min-width:560px"><thead><tr><th>SKU</th><th>Shop</th><th class="num">Now/ea</th><th class="num">New/ea</th><th class="num">Annual impact</th></tr></thead><tbody>${dq.negative.slice(0, 6).map((s) => `<tr class="row-link" onclick="location.hash='#/comparison/${s.id}'"><td class="cell-sub">${esc(s.productName)}</td><td>${esc(s.shop || "—")}</td><td class="num">${fmt.money(s.currentUnitPrice, 2)}</td><td class="num text-red">${fmt.money(s.newUnitPrice, 2)}</td><td class="num text-red">${fmt.money((s.newUnitPrice - s.currentUnitPrice) * s.annualQuantity)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+      </div>` : ""}
 
       <div class="section-title">Category Breakdown</div>
       <div class="grid cols-4">${cats.map(U.categoryTile).join("")}</div>
@@ -545,14 +559,15 @@
             <div class="cell-sub">All ${rows.length} SKU(s) for ${esc(shop.shopName)} · total savings <b class="text-green">${fmt.money(shop.savingsOpportunity)}</b> (${fmt.pct(shop.savingsPercentage)})</div>
             <button class="btn btn-green btn-sm" id="dlShopSkus">⬇ Download all SKUs (CSV)</button>
           </div>` : "";
-        const table = rows.length ? `<div class="table-wrap"><table class="data" style="min-width:880px"><thead><tr>
-            <th>SKU</th>${allTab ? "<th>Category</th>" : ""}<th>Product</th><th>Subcategory</th><th>Vendor → Rec.</th><th class="num">Price/Each</th><th class="num">Current</th><th class="num">New</th><th class="num">Savings</th><th>%</th><th>Status</th>
+        const statusSelect = (r) => `<select class="approve-select" data-approve="${esc(r.id)}" onclick="event.stopPropagation()" title="Set approval status">${P.STATUSES.map((st) => `<option ${st === r.implementationStatus ? "selected" : ""}>${esc(st)}</option>`).join("")}</select>`;
+        const table = rows.length ? `<div class="table-wrap"><table class="data" style="min-width:920px"><thead><tr>
+            <th>SKU</th>${allTab ? "<th>Category</th>" : ""}<th>Product</th><th>Subcategory</th><th>Vendor → Rec.</th><th class="num">Price/Each</th><th class="num">Current</th><th class="num">New</th><th class="num">Savings</th><th>%</th><th>Approval</th>
           </tr></thead><tbody>${rows.map((r) => `<tr class="row-link" onclick="location.hash='#/comparison/${r.id}'">
             <td class="mono">${esc(r.sku || r.id)}</td>${allTab ? `<td>${esc(r.category)}</td>` : ""}<td class="cell-strong">${esc(r.productName)}</td><td>${esc(r.subcategory)}</td>
             <td>${esc(r.currentVendor)}<div class="cell-sub">→ ${esc(r.recommendedVendor)}</div></td>
             <td class="num"><span class="price-old">${fmt.money(r.currentUnitPrice, 2)}</span><div class="text-green cell-strong">${fmt.money(r.newUnitPrice, 2)}</div></td>
             <td class="num">${fmt.money(r.currentAnnualSpend)}</td><td class="num text-green">${fmt.money(r.newAnnualSpend)}</td>
-            <td class="num cell-strong text-green">${fmt.money(r.annualSavings)}</td><td>${U.savingsBadge(r.savingsPercentage)}</td><td>${U.statusBadge(r.implementationStatus)}</td>
+            <td class="num cell-strong text-green">${fmt.money(r.annualSavings)}</td><td>${U.savingsBadge(r.savingsPercentage)}</td><td>${statusSelect(r)}</td>
           </tr>`).join("")}</tbody></table></div>` : `<div class="empty">No ${esc(tab)} SKUs assigned to ${esc(shop.shopName)}.</div>`;
         tabContent = toolbar + table;
       }
@@ -587,6 +602,18 @@
         if (!shop || !shop.rows.length) { alert("No SKUs for this shop yet."); return; }
         downloadCsv(skuSavingsCsv(shop.rows), "shop-" + shop.code.replace(/\s+/g, "-").toLowerCase() + "-skus.csv");
       }));
+      // Shop-facing approval write-back: change a SKU's status and persist.
+      document.querySelectorAll("[data-approve]").forEach((sel) => sel.addEventListener("change", async (e) => {
+        e.stopPropagation();
+        const id = sel.getAttribute("data-approve");
+        P.updateSku(id, { implementationStatus: sel.value });
+        sel.style.outline = "2px solid var(--green, #16a34a)";
+        if (window.Store && window.Store.available()) {
+          const s = P.SKUS.find((x) => x.id === id);
+          try { await window.Store.upsertSku(s); setTimeout(() => { sel.style.outline = ""; }, 800); }
+          catch (err) { sel.style.outline = "2px solid var(--red, #dc2626)"; alert("Could not save approval: " + err.message); }
+        } else { setTimeout(() => { sel.style.outline = ""; }, 800); }
+      }));
     },
   };
 
@@ -609,7 +636,12 @@
               <span>${esc(it.name)}${it.uom && it.uom !== "Each" ? ` <span class="badge navy" style="font-size:9px">${esc(it.uom)}</span>` : ""}</span>
               <span class="mono">${fmt.money(it.unitPrice, 2)}</span></div>`).join("")}</div>`).join("");
           const term = c.effectiveDate ? ` · ${esc(c.effectiveDate)}${c.expirationDate ? "–" + esc(c.expirationDate) : ""}` : "";
-          return `<details style="margin-top:6px"><summary class="cell-strong" style="cursor:pointer">📑 ${esc(c.title)} <span class="cell-sub">(${c.items.length} item(s)${term})</span></summary>${cats}</details>`;
+          // Match this contract's rates against shop SKUs → switch savings.
+          const match = P.matchContractToSkus(c);
+          const positive = match.matches.filter((m) => m.annualSavings > 0);
+          const matchBlock = positive.length ? `<details style="margin-top:4px"><summary class="cell-strong text-green" style="cursor:pointer">🔗 Match to shop SKUs · ${positive.length} match(es), save ${fmt.money(match.totalSavings)}/yr</summary>
+            <div class="table-wrap" style="border:none;margin-top:4px"><table class="data" style="min-width:520px"><thead><tr><th>Shop</th><th>Current SKU</th><th class="num">Now/ea</th><th class="num">Contract/ea</th><th class="num">Savings/yr</th></tr></thead><tbody>${positive.slice(0, 12).map((m) => `<tr><td>${esc(m.sku.shop || "—")}</td><td class="cell-sub">${esc(m.sku.productName)}</td><td class="num">${fmt.money(m.currentEach, 2)}</td><td class="num text-green">${fmt.money(m.contractEach, 2)}</td><td class="num cell-strong text-green">${fmt.money(m.annualSavings)}</td></tr>`).join("")}</tbody></table></div></details>` : "";
+          return `<details style="margin-top:6px"><summary class="cell-strong" style="cursor:pointer">📑 ${esc(c.title)} <span class="cell-sub">(${c.items.length} item(s)${term})</span></summary>${cats}${matchBlock}</details>`;
         }).join("");
         return `<div style="margin-top:12px;border-top:1px solid var(--gray-100);padding-top:10px"><div class="cell-strong" style="font-size:12px;margin-bottom:2px">📒 Contract price book</div>${blocks}</div>`;
       };
@@ -831,6 +863,10 @@
           ${f("Status", `<select id="ed_status">${statusOpts}</select>`)}
         </div>
         <div class="grid cols-2" style="gap:12px">
+          ${f("Review owner", `<input type="text" id="ed_reviewOwner" value="${esc(s.reviewOwner || "")}" placeholder="e.g. A. Reyes">`)}
+          ${f("Target date", `<input type="date" id="ed_targetDate" value="${esc(s.targetDate || "")}">`)}
+        </div>
+        <div class="grid cols-2" style="gap:12px">
           ${f("UOM", `<input type="text" id="ed_unitOfMeasure" value="${esc(s.unitOfMeasure || "")}">`)}
           ${f("Pack size", `<input type="text" id="ed_packSize" value="${esc(s.packSize || "")}">`)}
         </div>
@@ -861,6 +897,8 @@
         packSize: v("ed_packSize").value.trim(),
         qualityTier: v("ed_qualityTier").value,
         implementationStatus: v("ed_status").value,
+        reviewOwner: v("ed_reviewOwner").value.trim(),
+        targetDate: v("ed_targetDate").value,
         preferredItem: v("ed_preferred").checked,
         contractedItem: v("ed_contracted").checked,
         notes: v("ed_notes").value.trim(),
