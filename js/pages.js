@@ -664,8 +664,10 @@
           ${priceBook(v.vendorName)}
         </div>`).join("");
 
-      // Current vs recommended comparison example
-      const linenCurrent = P.SKUS.filter((s) => s.category === "Linens");
+      // Current vs recommended comparison example — use the rolled-up Linens
+      // group, falling back to all SKUs so the panel never shows $0 / NaN%.
+      let linenCurrent = P.SKUS.filter((s) => s.categoryGroup === "Linens");
+      if (!linenCurrent.length) linenCurrent = P.SKUS;
       const curSpend = P.round(linenCurrent.reduce((a, r) => a + r.currentAnnualSpend, 0));
       const newSpend = P.round(linenCurrent.reduce((a, r) => a + r.newAnnualSpend, 0));
       const sav = curSpend - newSpend;
