@@ -325,6 +325,64 @@
     }).sort((a, b) => b.savingsOpportunity - a.savingsOpportunity);
   }
 
+  /* -------------------- Contract ↔ SKU matching (F1) -------------------- */
+  // Significant tokens for fuzzy matching: sizes (27x54), weights (14#),
+  // numbers, and words of 3+ letters.
+  function matchTokens(str) {
+    return (String(str || "").toLowerCase().match(/\d+\s*x\s*\d+|\d+#|\d+(?:\.\d+)?|[a-z]{3,}/g) || []).map((t) => t.replace(/\s+/g, ""));
+  }
+  // Match a contract's price-book items against shop SKUs and compute the
+  // savings if each shop switched to the contracted per-each price.
+  function matchContractToSkus(contract, opts) {
+    opts = opts || {};
+    const minScore = opts.minScore || 0.34;
+    const bySku = {};
+    (contract.items || []).forEach((it) => {
+      const itTok = new Set(matchTokens(it.name + " " + (it.description || "")));
+      if (!itTok.size) return;
+      SKUS.forEach((s) => {
+        const sTok = matchTokens(s.productName + " " + s.description);
+        if (!sTok.length) return;
+        const inter = sTok.filter((t) => itTok.has(t)).length;
+        const score = inter / Math.max(itTok.size, sTok.length);
+        if (score < minScore) return;
+        const cur = s.currentUnitPrice || 0, cp = it.unitPrice || 0;
+        const annualSavings = round((cur - cp) * (s.annualQuantity || 0));
+        const m = { item: it, sku: s, score, contractEach: cp, currentEach: cur, savingsEach: round(cur - cp), annualSavings };
+        if (!bySku[s.id] || score > bySku[s.id].score) bySku[s.id] = m;
+      });
+    });
+    const matches = Object.keys(bySku).map((k) => bySku[k]).sort((a, b) => b.annualSavings - a.annualSavings);
+    const totalSavings = round(matches.reduce((a, m) => a + (m.annualSavings > 0 ? m.annualSavings : 0), 0));
+    return { matches, totalSavings, matchedSkus: matches.length };
+  }
+
+  /* ----------------------- Data quality / anomalies (F2) ---------------- */
+  function median(nums) {
+    const s = nums.filter((n) => n > 0).sort((a, b) => a - b);
+    if (!s.length) return 0;
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  }
+  function dataQuality() {
+    const negative = SKUS.filter((s) => s.newUnitPrice > s.currentUnitPrice && s.currentUnitPrice > 0)
+      .sort((a, b) => (b.newUnitPrice - b.currentUnitPrice) * b.annualQuantity - (a.newUnitPrice - a.currentUnitPrice) * a.annualQuantity);
+    const missingPrice = SKUS.filter((s) => !(s.currentUnitPrice > 0) || !(s.newUnitPrice > 0));
+    const missingQty = SKUS.filter((s) => !(s.annualQuantity > 0));
+    const bySub = {};
+    SKUS.forEach((s) => { const k = s.categoryGroup + "|" + s.subcategory; (bySub[k] = bySub[k] || []).push(s); });
+    const outliers = [];
+    Object.keys(bySub).forEach((k) => {
+      const rows = bySub[k];
+      if (rows.length < 4) return;
+      const med = median(rows.map((r) => r.currentUnitPrice));
+      if (!med) return;
+      rows.forEach((r) => { if (r.currentUnitPrice > med * 3) outliers.push({ sku: r, median: round(med) }); });
+    });
+    outliers.sort((a, b) => b.sku.currentUnitPrice - a.sku.currentUnitPrice);
+    return { negative, missingPrice, missingQty, outliers, counts: { negative: negative.length, missingPrice: missingPrice.length, missingQty: missingQty.length, outliers: outliers.length } };
+  }
+
   function categories() {
     const cats = CATEGORY_ORDER;
     return cats.map((name) => {
@@ -466,6 +524,8 @@
       shop: f.shop || "", shopCode: f.shopCode || "", region: f.region || "",
       qualityTier: f.qualityTier || "Standard",
       implementationStatus: f.implementationStatus || "Not Reviewed",
+      reviewOwner: f.reviewOwner || "",
+      targetDate: f.targetDate || "",
       preferredItem: !!f.preferredItem, contractedItem: !!f.contractedItem,
       imageUrl: "", notes: f.notes || "",
     };
@@ -901,6 +961,8 @@
     categoryGroupOf,
     categoryGroups,
     categoriesInGroup,
+    matchContractToSkus,
+    dataQuality,
     subcategoriesFor,
     shops,
     upsertBrand,
