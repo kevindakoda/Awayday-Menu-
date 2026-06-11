@@ -794,9 +794,25 @@
         </div>
       </div>
 
+      <div class="card" style="margin-bottom:16px">
+        <h3 class="card-title">🧠 AI provider &amp; review</h3>
+        <p class="text-muted" style="font-size:12.5px;margin:0 0 12px">Choose which model powers categorization, document OCR, and the savings review. API keys are stored server-side as Supabase secrets and never reach the browser — switching providers here never exposes a key.</p>
+        <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap">
+          <div class="field" style="margin:0;min-width:200px"><label>AI provider</label>
+            <select id="aiProvider">
+              <option value="claude">Claude (Anthropic)</option>
+              <option value="gemini">Gemini (Google)</option>
+            </select>
+          </div>
+          <div class="cell-sub" id="aiProviderStatus" style="padding-bottom:8px">Checking configured providers…</div>
+          <button class="btn btn-primary btn-sm" id="aiReviewBtn" style="margin-left:auto">✨ Run AI savings review</button>
+        </div>
+        <div id="aiReviewResult" style="margin-top:12px"></div>
+      </div>
+
       <div class="grid cols-2">
         <div class="card"><h3 class="card-title">🤖 Upload raw files — AI extraction</h3>
-          <p class="text-muted" style="font-size:12.5px;margin:0 0 10px">Drop an Excel/CSV sheet <b>or</b> a photo/scan/PDF of a price list or invoice. Multi-tab workbooks are fully supported — every product tab is scanned, the header row is detected automatically, section/subtotal rows are ignored, and SKUs repeated across tabs are merged. Claude fills in category, suppliers, SKU, baseline &amp; future spend, and more — review and edit below.</p>
+          <p class="text-muted" style="font-size:12.5px;margin:0 0 10px">Drop an Excel/CSV sheet <b>or</b> a photo/scan/PDF of a price list or invoice. Multi-tab workbooks are fully supported — every product tab is scanned, the header row is detected automatically, section/subtotal rows are ignored, and SKUs repeated across tabs are merged. Your selected AI provider (Claude or Gemini) fills in category, suppliers, SKU, baseline &amp; future spend, and more — review and edit below.</p>
           <div class="drop-zone" id="dropZone"><div class="di">📄</div><div style="margin:8px 0">Drag &amp; drop a file, or</div>
             <label class="btn btn-primary btn-sm">Choose file<input type="file" id="rawFile" accept=".csv,.xlsx,.xls,.png,.jpg,.jpeg,.webp,.gif,.pdf" hidden></label>
             <div class="cell-sub" style="margin-top:8px">.xlsx · .csv · images · .pdf</div>
@@ -1117,6 +1133,54 @@
           setStatus(`❌ ${esc(e.message || e)}`, "err");
         }
       };
+
+      // ---- AI provider toggle + savings review ----
+      const aiSel = document.getElementById("aiProvider");
+      const aiStatus = document.getElementById("aiProviderStatus");
+      if (aiSel && window.AI) {
+        aiSel.value = window.AI.getProvider();
+        aiSel.addEventListener("change", () => window.AI.setProvider(aiSel.value));
+        window.AI.providers().then((p) => {
+          const tag = (on) => on ? "✅ configured" : "⚠️ no key";
+          if (aiStatus) aiStatus.innerHTML = `Claude: ${tag(p.claude)} · Gemini: ${tag(p.gemini)}`;
+          Array.from(aiSel.options).forEach((o) => {
+            const ok = o.value === "gemini" ? p.gemini : p.claude;
+            o.disabled = !ok;
+            if (!ok) o.text += " — add API key";
+          });
+          if (!p[aiSel.value]) { const fb = p.claude ? "claude" : (p.gemini ? "gemini" : ""); if (fb) { aiSel.value = fb; window.AI.setProvider(fb); } }
+        }).catch((e) => { if (aiStatus) aiStatus.textContent = "Could not check providers: " + e.message; });
+      }
+      const buildReviewStats = () => {
+        const agg = P.aggregate(P.SKUS);
+        const byKey = (key) => {
+          const m = {};
+          P.SKUS.forEach((s) => { const k = s[key] || "—"; (m[k] = m[k] || { spend: 0, savings: 0, skus: 0 }); m[k].spend += s.currentAnnualSpend; m[k].savings += s.annualSavings; m[k].skus++; });
+          return Object.keys(m).map((k) => ({ name: k, spend: m[k].spend, savings: m[k].savings, skus: m[k].skus }))
+            .sort((a, b) => b.savings - a.savings).slice(0, 8)
+            .map((r) => ({ name: r.name, currentSpend: Math.round(r.spend), savings: Math.round(r.savings), skus: r.skus }));
+        };
+        const priceIncreases = P.SKUS.filter((s) => s.newUnitPrice > s.currentUnitPrice && s.currentUnitPrice > 0)
+          .sort((a, b) => (b.newUnitPrice - b.currentUnitPrice) - (a.newUnitPrice - a.currentUnitPrice)).slice(0, 8)
+          .map((s) => ({ sku: s.sku || s.id, product: s.productName, shop: s.shop, currentEach: s.currentUnitPrice, newEach: s.newUnitPrice }));
+        return {
+          totals: { currentSpend: Math.round(agg.baselineSpend), newSpend: Math.round(agg.newSpend), savings: Math.round(agg.savingsOpportunity), savingsPct: agg.savingsPercentage, skuCount: agg.skuCount, brandCount: P.SHOPS.length },
+          topShops: byKey("shop"), topCategories: byKey("category"), priceIncreases,
+        };
+      };
+      const aiBtn = document.getElementById("aiReviewBtn");
+      if (aiBtn) aiBtn.addEventListener("click", async () => {
+        const out = document.getElementById("aiReviewResult");
+        if (!P.SKUS.length) { if (out) out.innerHTML = `<div class="notice">Upload or load data first.</div>`; return; }
+        aiBtn.disabled = true;
+        if (out) out.innerHTML = `<div class="cell-sub">✨ ${esc(window.AI.getProvider() === "gemini" ? "Gemini" : "Claude")} is reviewing the catalog…</div>`;
+        try {
+          const text = await window.AI.analyze(buildReviewStats());
+          if (out) out.innerHTML = `<div class="notice" style="white-space:pre-wrap;background:#eef4ff;border-color:#cfe0ff">${esc(text)}</div>`;
+        } catch (e) {
+          if (out) out.innerHTML = `<div class="notice" style="background:#fdeaea;border-color:#f3c2c2;color:var(--red)">❌ ${esc(e.message)}</div>`;
+        } finally { aiBtn.disabled = false; }
+      });
 
       const rawInput = document.getElementById("rawFile");
       if (rawInput) rawInput.addEventListener("change", () => { processRawFile(rawInput.files[0]); rawInput.value = ""; });

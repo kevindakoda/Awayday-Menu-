@@ -11,6 +11,22 @@
     return (window.Auth && window.Auth.client) ? window.Auth.client() : null;
   }
 
+  // Provider preference (which model backend the edge function should use).
+  // Stored per-browser; the actual API keys live server-side as Supabase
+  // secrets, so switching providers never exposes a key.
+  const PROVIDER_KEY = "psp_ai_provider";
+  function getProvider() {
+    try { return localStorage.getItem(PROVIDER_KEY) === "gemini" ? "gemini" : "claude"; } catch (_) { return "claude"; }
+  }
+  function setProvider(p) {
+    try { localStorage.setItem(PROVIDER_KEY, p === "gemini" ? "gemini" : "claude"); } catch (_) { /* ignore */ }
+  }
+  // Ask the edge function which providers actually have a key configured.
+  async function providers() {
+    const res = await invoke("providers", {});
+    return res.providers || { claude: false, gemini: false };
+  }
+
   // Allowed taxonomy passed to Claude so it classifies into our categories.
   function taxonomy() {
     const t = {};
@@ -22,7 +38,7 @@
     const c = client();
     if (!c) throw new Error("You must be signed in to use AI features.");
     const { data, error } = await c.functions.invoke("ai-assist", {
-      body: Object.assign({ action }, payload),
+      body: Object.assign({ action, provider: getProvider() }, payload),
     });
     if (error) {
       let msg = error.message || "AI request failed.";
@@ -87,5 +103,5 @@
     });
   }
 
-  window.AI = { categorize, ocr, analyze, categorizeLocal, taxonomy };
+  window.AI = { categorize, ocr, analyze, categorizeLocal, taxonomy, getProvider, setProvider, providers };
 })();
