@@ -72,13 +72,34 @@
   const brandToRow = (b) => ({ code: b.code, shop_name: b.shopName || "", region: b.region || "" });
   const rowToBrand = (r) => ({ shopName: r.shop_name || "", code: r.code, region: r.region || "" });
 
+  const contractToRow = (c) => ({
+    id: c.id,
+    vendor_name: c.vendorName || "",
+    title: c.title || "",
+    effective_date: c.effectiveDate || "",
+    expiration_date: c.expirationDate || "",
+    source: c.source || "",
+    items: c.items || [],
+  });
+  const rowToContract = (r) => ({
+    id: r.id,
+    vendorName: r.vendor_name || "",
+    title: r.title || "",
+    effectiveDate: r.effective_date || "",
+    expirationDate: r.expiration_date || "",
+    source: r.source || "",
+    uploadedAt: r.created_at || "",
+    items: Array.isArray(r.items) ? r.items : [],
+  });
+
   /* ----------------------------- reads ------------------------------- */
   async function loadAll() {
     const c = client();
     if (!c) return { loaded: false };
-    const [brandsRes, skusRes] = await Promise.all([
+    const [brandsRes, skusRes, contractsRes] = await Promise.all([
       c.from("procurement_brands").select("*"),
       c.from("procurement_skus").select("*"),
+      c.from("procurement_contracts").select("*"),
     ]);
     if (brandsRes.error) throw brandsRes.error;
     if (skusRes.error) throw skusRes.error;
@@ -86,6 +107,11 @@
     (brandsRes.data || []).forEach((r) => P.SHOPS.push(rowToBrand(r)));
     P.SKUS.length = 0;
     (skusRes.data || []).forEach((r) => P.SKUS.push(rowToSku(r)));
+    // Contracts are optional; ignore a missing-table error so older projects still load.
+    if (P.CONTRACTS) {
+      P.CONTRACTS.length = 0;
+      if (!contractsRes.error) (contractsRes.data || []).forEach((r) => P.CONTRACTS.push(rowToContract(r)));
+    }
     return { loaded: true, brands: P.SHOPS.length, skus: P.SKUS.length };
   }
 
@@ -126,5 +152,20 @@
     if (res.error) throw res.error;
   }
 
-  window.Store = { available, loadAll, pushAll, upsertSku, deleteSku };
+  // Save a single contract price book (insert or update).
+  async function upsertContract(contract) {
+    const c = client();
+    if (!c) return;
+    const res = await c.from("procurement_contracts").upsert(contractToRow(contract));
+    if (res.error) throw res.error;
+  }
+
+  async function deleteContract(id) {
+    const c = client();
+    if (!c) return;
+    const res = await c.from("procurement_contracts").delete().eq("id", id);
+    if (res.error) throw res.error;
+  }
+
+  window.Store = { available, loadAll, pushAll, upsertSku, deleteSku, upsertContract, deleteContract };
 })();

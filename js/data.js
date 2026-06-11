@@ -232,6 +232,11 @@
   // Catalog starts empty; populated via uploads/OCR or loadSampleData().
   const SKUS = [];
 
+  // Vendor price books extracted from uploaded contracts. Each entry:
+  // { id, vendorName, title, effectiveDate, expirationDate, source, uploadedAt,
+  //   items: [{ name, description, category, subcategory, unitPrice, uom, packSize, notes }] }
+  const CONTRACTS = [];
+
   /* ------------------------- Subcategory definitions ------------------------- */
   const SUBCATEGORIES = {
     Linens: ["Sheets", "Pillowcases", "Towels", "Bath Mats", "Blankets", "Duvets", "Mattress Pads", "Pool Towels", "Kitchen Towels", "Luxury Linen Items", "Standard Linen Items", "Economy Linen Items"],
@@ -461,6 +466,66 @@
     return { added, brandsCreated: SHOPS.length - before, totalBrands: SHOPS.length, totalSkus: SKUS.length };
   }
 
+  /* ---------------------------- Vendor contracts ---------------------------- */
+  function nextContractId() {
+    let n = CONTRACTS.length + 1, id;
+    do { id = "CON-" + String(n++).padStart(3, "0"); } while (CONTRACTS.some((c) => c.id === id));
+    return id;
+  }
+
+  // Normalize one extracted contract line item into a price-book entry.
+  function normContractItem(it) {
+    const name = String(it.name || it.productName || it.service || it.description || "").trim();
+    return {
+      name: name || "Unnamed item",
+      description: String(it.description || "").trim(),
+      category: String(it.category || "").trim() || "Other",
+      subcategory: String(it.subcategory || "").trim() || "Miscellaneous",
+      unitPrice: +it.unitPrice || +it.price || +it.unitPriceEach || 0,
+      uom: String(it.uom || it.unitOfMeasure || "Each").trim() || "Each",
+      packSize: String(it.packSize || "").trim(),
+      notes: String(it.notes || "").trim(),
+    };
+  }
+
+  // Add (or replace, if same vendor+title) a contract price book. Ensures the
+  // vendor exists in the VENDORS list so it shows on the Vendors page.
+  function importContract(c) {
+    const vendorName = String(c.vendorName || "").trim() || "Unnamed Vendor";
+    const items = (c.items || []).map(normContractItem).filter((i) => i.name && i.name !== "Unnamed item" || i.unitPrice);
+    const cats = Array.from(new Set(items.map((i) => i.category)));
+    const entry = {
+      id: c.id || nextContractId(),
+      vendorName,
+      title: String(c.title || "").trim() || (vendorName + " contract"),
+      effectiveDate: String(c.effectiveDate || "").trim(),
+      expirationDate: String(c.expirationDate || "").trim(),
+      source: String(c.source || "").trim(),
+      uploadedAt: c.uploadedAt || new Date().toISOString(),
+      items,
+    };
+    // Replace any prior price book for the same vendor + title.
+    const idx = CONTRACTS.findIndex((x) => x.vendorName.toLowerCase() === vendorName.toLowerCase() && x.title.toLowerCase() === entry.title.toLowerCase());
+    if (idx >= 0) { entry.id = CONTRACTS[idx].id; CONTRACTS[idx] = entry; }
+    else CONTRACTS.push(entry);
+    // Register the vendor if it's new so the Vendors page lists it.
+    if (!VENDORS.some((v) => v.vendorName.toLowerCase() === vendorName.toLowerCase())) {
+      VENDORS.push({ vendorName, categories: cats.length ? cats : ["Other"], contractStatus: "Contract on file", pricingStatus: "Contracted", notes: "Added from an uploaded contract." });
+    }
+    return { contract: entry, itemCount: items.length, vendorName, categories: cats };
+  }
+
+  function deleteContract(id) {
+    const i = CONTRACTS.findIndex((c) => c.id === id);
+    if (i >= 0) CONTRACTS.splice(i, 1);
+  }
+
+  // All price books for a vendor (case-insensitive).
+  function contractsByVendor(vendorName) {
+    const n = String(vendorName || "").toLowerCase();
+    return CONTRACTS.filter((c) => c.vendorName.toLowerCase() === n);
+  }
+
   // Apply admin edits to an existing SKU and recompute spend/savings.
   function updateSku(id, fields) {
     const s = SKUS.find((x) => x.id === id);
@@ -476,7 +541,7 @@
   }
 
   // Wipe all brands and SKUs (reference taxonomy and vendors are kept).
-  function clearAll() { SKUS.length = 0; SHOPS.length = 0; }
+  function clearAll() { SKUS.length = 0; SHOPS.length = 0; CONTRACTS.length = 0; }
 
   // Restore the bundled demo dataset (5 brands + sample SKUs).
   function loadSampleData() {
@@ -789,6 +854,11 @@
     CATEGORY_META,
     CATEGORY_ORDER,
     SKUS,
+    CONTRACTS,
+    importContract,
+    deleteContract,
+    contractsByVendor,
+    nextContractId,
     aggregate,
     categories,
     subcategoriesFor,

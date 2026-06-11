@@ -72,6 +72,13 @@
     return res.items || [];
   }
 
+  // Extract a vendor price book from a contract / rate sheet (image or PDF).
+  // Returns { vendorName, title, effectiveDate, expirationDate, items: [...] }.
+  async function contractExtract(file) {
+    const { mediaType, data } = await toBase64(file);
+    return await invoke("contract", { mediaType, data, taxonomy: taxonomy() });
+  }
+
   // Generate an executive savings briefing from aggregate stats.
   async function analyze(stats) {
     const res = await invoke("analyze", { stats });
@@ -103,5 +110,5 @@
     });
   }
 
-  window.AI = { categorize, ocr, analyze, categorizeLocal, taxonomy, getProvider, setProvider, providers };
+  window.AI = { categorize, ocr, contractExtract, analyze, categorizeLocal, taxonomy, getProvider, setProvider, providers };
 })();
