@@ -22,6 +22,7 @@
   const State = (window.AppState = window.AppState || {
     catalog: { search: "", category: "", subcategory: "", shop: "", vendor: "", status: "", minSavingsPct: 0, preferred: false, contracted: false, sort: "annualSavings", dir: "desc" },
     sampleRequests: [],
+    sampleAddress: "",
     savingsView: "Category",
     comparePair: 0,
     shopTab: "Overview",
@@ -47,8 +48,16 @@
     if (!rows.length) {
       return `<button class="btn btn-outline btn-sm" disabled title="Click “Request sample” on a Linens or Disposables SKU first">✉️ Email sample request</button>`;
     }
-    return `<a class="btn btn-primary btn-sm" href="${esc(P.sampleRequestMailto(rows))}" title="Opens a drafted email to ${esc(contacts)} (cc ${esc(P.SAMPLE_CC)}) listing the ${rows.length} requested SKU sample(s)">✉️ Email sample request (${rows.length})</a>`;
+    return `<a class="btn btn-primary btn-sm sample-email-link" href="${esc(P.sampleRequestMailto(rows, State.sampleAddress))}" title="Opens a drafted email to ${esc(contacts)} (cc ${esc(P.SAMPLE_CC)}) listing the ${rows.length} requested SKU sample(s)">✉️ Email sample request (${rows.length})</a>`;
   };
+  // Delivery-address input + email button, shown together wherever samples can
+  // be requested. The address is typed once, kept in State, and folded into
+  // the drafted email's "ship to" section.
+  const sampleControls = () => `
+    <div class="field" style="margin:0;flex:1;min-width:240px;max-width:420px">
+      <input type="text" class="sample-address" placeholder="Deliver samples to… (street, city, state, zip)" value="${esc(State.sampleAddress)}" title="Delivery address included in the sample request email">
+    </div>
+    ${sampleEmailBtn()}`;
   function wireSampleButtons() {
     document.querySelectorAll("[data-sample]").forEach((b) => b.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -56,6 +65,13 @@
       const i = State.sampleRequests.indexOf(id);
       if (i >= 0) State.sampleRequests.splice(i, 1); else State.sampleRequests.push(id);
       window.App.renderCurrent();
+    }));
+    // Update the drafted mailto link in place as the address is typed, so the
+    // input keeps focus (no full rerender).
+    document.querySelectorAll(".sample-address").forEach((inp) => inp.addEventListener("input", () => {
+      State.sampleAddress = inp.value;
+      const href = P.sampleRequestMailto(sampleRows(), State.sampleAddress);
+      document.querySelectorAll("a.sample-email-link").forEach((a) => { a.href = href; });
     }));
   }
 
@@ -282,7 +298,7 @@
         <div>
           <div class="toolbar">
             <div class="search"><span class="si">🔍</span><input type="text" id="catalogSearch" placeholder="Search SKU, product, vendor, category…" value="${esc(f.search)}"></div>
-            ${sampleEmailBtn()}
+            ${sampleControls()}
             <button class="btn btn-outline btn-sm" id="exportCsv">⬇ Export CSV</button>
           </div>
           <div class="grid cols-4" style="margin-bottom:16px">
@@ -513,7 +529,7 @@
       } else {
         const rows = shop.rows.filter((r) => r.category === tab);
         const withSamples = P.SAMPLE_CATEGORIES.includes(tab);
-        tabContent = rows.length ? `${withSamples ? `<div class="toolbar" style="justify-content:flex-end">${sampleEmailBtn()}</div>` : ""}
+        tabContent = rows.length ? `${withSamples ? `<div class="toolbar">${sampleControls()}</div>` : ""}
           <div class="table-wrap"><table class="data" style="min-width:780px"><thead><tr>
             <th>SKU</th><th>Product</th><th>Subcategory</th><th>Vendor → Rec.</th><th class="num">Current</th><th class="num">New</th><th class="num">Savings</th><th>%</th><th>Status</th>${withSamples ? "<th>Sample</th>" : ""}
           </tr></thead><tbody>${rows.map((r) => `<tr class="row-link" onclick="location.hash='#/comparison/${r.id}'">
@@ -624,7 +640,7 @@
           <div><b>Recommended savings opportunity:</b> switch to ${esc(sku.recommendedVendor)} to save
           <b>${fmt.money(sku.annualSavings)}</b> per year (${fmt.pct(sku.savingsPercentage)}) on ${esc(sku.productName)}.</div>
         </div>
-        ${sampleEligible(sku) ? `<div class="toolbar">${sampleBtn(sku)}${sampleEmailBtn()}</div>` : ""}
+        ${sampleEligible(sku) ? `<div class="toolbar">${sampleBtn(sku)}${sampleControls()}</div>` : ""}
         <div class="compare-grid">
           ${col("Current Product", "current", {
             img: "📦", product: sku.productName, vendor: sku.currentVendor,

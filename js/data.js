@@ -779,7 +779,8 @@
 
   // Build a mailto: URL that opens a pre-drafted sample-request email listing
   // the given SKUs, addressed to the vendor contacts and cc'ing Awayday.
-  function sampleRequestMailto(rows) {
+  // `shipTo` (optional) is the delivery address the samples should be sent to.
+  function sampleRequestMailto(rows, shipTo) {
     const to = SAMPLE_CONTACTS.map((c) => c.email).join(",");
     const firstNames = SAMPLE_CONTACTS.map((c) => c.name.split(" ")[0]).join(", ");
     const plural = rows.length === 1 ? "" : "s";
@@ -788,6 +789,9 @@
       (i + 1) + ". " + (s.sku || s.id) + " — " + s.productName +
       " (" + s.subcategory + " · " + s.packSize + " · " + s.unitOfMeasure + ")" +
       (s.shop ? " — for " + s.shop : ""));
+    const shipLines = String(shipTo || "").trim()
+      ? ["Please ship the samples to:", ...String(shipTo).trim().split(/\n/), "Attn: Awayday procurement team"]
+      : ["Please ship the samples to the attention of the Awayday procurement team."];
     const body = [
       "Hi " + firstNames + ",",
       "",
@@ -795,7 +799,9 @@
       "",
       ...lines,
       "",
-      "Please confirm sample availability and expected lead times, and ship to the attention of the Awayday procurement team.",
+      ...shipLines,
+      "",
+      "Please confirm sample availability and expected lead times.",
       "",
       "Thank you,",
       "Awayday Procurement",
