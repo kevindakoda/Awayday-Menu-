@@ -67,6 +67,19 @@ The admin upload accepts CSV files with these columns:
 SKU,Product Name,Description,Category,Subcategory,Shop,Region,Current Vendor,Recommended Vendor,Current Unit Price,New Unit Price,UOM,Pack Size,Annual Quantity,Quality Tier,Contracted Item,Preferred Item,Implementation Status,Notes
 ```
 
+### Excel workbooks (multi-tab)
+
+The admin upload also accepts `.xlsx`/`.xls` workbooks, including real-world files with **many tabs**:
+
+- **Every tab is scanned** — not just the first sheet.
+- The **header row is detected automatically**, so a tab can start with a title row, notes, or blank rows above the actual column headers.
+- **Section and subtotal rows are skipped**, and the brand/property from a section header row is carried down to the product rows beneath it.
+- Column names are matched flexibly, including line breaks and synonyms — e.g. `Current\nPrice`, `A1 Price` (new/negotiated price), `Qty (Units)`, `Property`/`Shop` (brand).
+- A tab is treated as catalog data only if it has a **Shop/Brand/Property** column plus product and price columns; summary, rollup, and "approved list" tabs are skipped and reported.
+- **SKUs repeated across tabs are merged** — a row is a duplicate only when its brand, SKU, product, quantity, *and* pricing all match, so the same SKU listed at different volumes/prices is preserved as distinct line items.
+
+After import, the status line reports how many product rows were found, across how many tabs, and how many duplicates were merged.
+
 ## Project structure
 
 ```
