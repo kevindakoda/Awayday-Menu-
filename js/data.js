@@ -453,6 +453,20 @@
     return { added, brandsCreated: SHOPS.length - before, totalBrands: SHOPS.length, totalSkus: SKUS.length };
   }
 
+  // Apply admin edits to an existing SKU and recompute spend/savings.
+  function updateSku(id, fields) {
+    const s = SKUS.find((x) => x.id === id);
+    if (!s) return null;
+    Object.assign(s, fields);
+    const cp = +s.currentUnitPrice || 0, np = +s.newUnitPrice || 0, qty = +s.annualQuantity || 0;
+    s.currentUnitPrice = cp; s.newUnitPrice = np; s.annualQuantity = qty;
+    s.currentAnnualSpend = round(cp * qty);
+    s.newAnnualSpend = round(np * qty);
+    s.annualSavings = round(s.currentAnnualSpend - s.newAnnualSpend);
+    s.savingsPercentage = s.currentAnnualSpend ? round((s.annualSavings / s.currentAnnualSpend) * 100, 1) : 0;
+    return s;
+  }
+
   // Wipe all brands and SKUs (reference taxonomy and vendors are kept).
   function clearAll() { SKUS.length = 0; SHOPS.length = 0; }
 
@@ -777,6 +791,7 @@
     makeSku,
     ensureBrand,
     importRecords,
+    updateSku,
     clearAll,
     loadSampleData,
     vendorsView,

@@ -659,6 +659,107 @@
   };
 
   /* ============================== ADMIN ============================== */
+
+  // Render the editable SKU table used in the Admin console.
+  function skuEditorTable(skus) {
+    if (!skus.length) {
+      return `<div class="empty" style="padding:26px;text-align:center">No SKUs to show. Upload a file above or load sample data.</div>`;
+    }
+    const rows = skus.map((s) => `<tr>
+      <td><span class="cell-strong">${esc(s.productName)}</span><div class="cell-sub">${esc(s.id)} · ${esc(s.category)} › ${esc(s.subcategory)}</div></td>
+      <td>${esc(s.shop || "—")}</td>
+      <td><div>${esc(s.recommendedVendor || "—")}</div><div class="cell-sub">was ${esc(s.currentVendor || "—")}</div></td>
+      <td class="num">${fmt.money(s.currentAnnualSpend)}</td>
+      <td class="num">${fmt.money(s.newAnnualSpend)}</td>
+      <td class="num text-green">${fmt.money(s.annualSavings)}</td>
+      <td>${U.statusBadge(s.implementationStatus)}</td>
+      <td><button class="btn btn-outline btn-sm" data-edit="${esc(s.id)}">✏️ Edit</button></td>
+    </tr>`).join("");
+    return `<div class="table-wrap"><table class="data"><thead><tr>
+      <th>Product</th><th>Brand</th><th>Suppliers</th><th class="num">Baseline spend</th><th class="num">Future spend</th><th class="num">Savings</th><th>Status</th><th></th>
+    </tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="cell-sub" style="margin-top:8px">${skus.length} SKU(s). Baseline = current unit price × annual qty; future = new unit price × annual qty.</div>`;
+  }
+
+  // Open the modal editor for one SKU. Admin-only; recomputes spend on save.
+  function openSkuEditor(id, onSave) {
+    const s = P.SKUS.find((x) => x.id === id);
+    const overlay = document.getElementById("skuEditOverlay");
+    if (!s || !overlay) return;
+    const catOpts = Object.keys(P.SUBCATEGORIES).map((c) => `<option ${c === s.category ? "selected" : ""}>${esc(c)}</option>`).join("");
+    const vendorList = P.VENDORS.map((v) => `<option value="${esc(v.vendorName)}">`).join("");
+    const brandOpts = `<option value="">— Unassigned —</option>` +
+      P.SHOPS.map((b) => `<option value="${esc(b.code)}" ${b.code === s.shopCode ? "selected" : ""}>${esc(b.shopName)} (${esc(b.code)})</option>`).join("");
+    const statusOpts = P.STATUSES.map((st) => `<option ${st === s.implementationStatus ? "selected" : ""}>${esc(st)}</option>`).join("");
+    const tierOpts = ["Economy", "Standard", "Luxury"].map((t) => `<option ${t === s.qualityTier ? "selected" : ""}>${esc(t)}</option>`).join("");
+    const f = (label, inner) => `<div class="field"><label>${label}</label>${inner}</div>`;
+    overlay.innerHTML = `<div class="modal">
+      <div class="modal-head"><h3>Edit SKU · ${esc(s.id)}</h3><button class="modal-x" data-close>✕</button></div>
+      <div class="modal-body">
+        ${f("Product name", `<input type="text" id="ed_productName" value="${esc(s.productName)}">`)}
+        ${f("Description", `<input type="text" id="ed_description" value="${esc(s.description || "")}">`)}
+        <div class="grid cols-2" style="gap:12px">
+          ${f("Category", `<select id="ed_category">${catOpts}</select>`)}
+          ${f("Subcategory", `<input type="text" id="ed_subcategory" value="${esc(s.subcategory || "")}">`)}
+        </div>
+        <div class="grid cols-2" style="gap:12px">
+          ${f("Current vendor", `<input type="text" list="ed_vendors" id="ed_currentVendor" value="${esc(s.currentVendor || "")}">`)}
+          ${f("Recommended vendor", `<input type="text" list="ed_vendors" id="ed_recommendedVendor" value="${esc(s.recommendedVendor || "")}">`)}
+        </div>
+        <datalist id="ed_vendors">${vendorList}</datalist>
+        <div class="grid cols-3" style="gap:12px">
+          ${f("Current unit price", `<input type="number" step="0.01" id="ed_currentUnitPrice" value="${s.currentUnitPrice}">`)}
+          ${f("New unit price", `<input type="number" step="0.01" id="ed_newUnitPrice" value="${s.newUnitPrice}">`)}
+          ${f("Annual quantity", `<input type="number" id="ed_annualQuantity" value="${s.annualQuantity}">`)}
+        </div>
+        <div class="grid cols-3" style="gap:12px">
+          ${f("Brand", `<select id="ed_brand">${brandOpts}</select>`)}
+          ${f("Quality tier", `<select id="ed_qualityTier">${tierOpts}</select>`)}
+          ${f("Status", `<select id="ed_status">${statusOpts}</select>`)}
+        </div>
+        <div class="grid cols-2" style="gap:12px">
+          ${f("UOM", `<input type="text" id="ed_unitOfMeasure" value="${esc(s.unitOfMeasure || "")}">`)}
+          ${f("Pack size", `<input type="text" id="ed_packSize" value="${esc(s.packSize || "")}">`)}
+        </div>
+        <div class="field" style="display:flex;gap:18px;align-items:center"><label class="check"><input type="checkbox" id="ed_preferred" ${s.preferredItem ? "checked" : ""}> Preferred</label><label class="check"><input type="checkbox" id="ed_contracted" ${s.contractedItem ? "checked" : ""}> Contracted</label></div>
+        ${f("Notes", `<input type="text" id="ed_notes" value="${esc(s.notes || "")}">`)}
+      </div>
+      <div class="modal-foot"><button class="btn btn-outline" data-close>Cancel</button><button class="btn btn-primary" id="ed_save">Save changes</button></div>
+    </div>`;
+    overlay.style.display = "flex";
+    const close = () => { overlay.style.display = "none"; overlay.innerHTML = ""; };
+    overlay.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", close));
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    const v = (id) => document.getElementById(id);
+    v("ed_save").addEventListener("click", () => {
+      const brandSel = v("ed_brand").value;
+      const brand = P.SHOPS.find((b) => b.code === brandSel);
+      P.updateSku(s.id, {
+        productName: v("ed_productName").value.trim() || s.productName,
+        description: v("ed_description").value.trim(),
+        category: v("ed_category").value,
+        subcategory: v("ed_subcategory").value.trim(),
+        currentVendor: v("ed_currentVendor").value.trim(),
+        recommendedVendor: v("ed_recommendedVendor").value.trim(),
+        currentUnitPrice: +v("ed_currentUnitPrice").value || 0,
+        newUnitPrice: +v("ed_newUnitPrice").value || 0,
+        annualQuantity: +v("ed_annualQuantity").value || 0,
+        unitOfMeasure: v("ed_unitOfMeasure").value.trim(),
+        packSize: v("ed_packSize").value.trim(),
+        qualityTier: v("ed_qualityTier").value,
+        implementationStatus: v("ed_status").value,
+        preferredItem: v("ed_preferred").checked,
+        contractedItem: v("ed_contracted").checked,
+        notes: v("ed_notes").value.trim(),
+        shop: brand ? brand.shopName : "",
+        shopCode: brand ? brand.code : "",
+        region: brand ? brand.region : s.region,
+      });
+      close();
+      if (onSave) onSave();
+    });
+  }
+
   PAGES.admin = {
     title: "Admin",
     crumb: "Admin",
@@ -683,18 +784,18 @@
       </div>
 
       <div class="grid cols-2">
-        <div class="card"><h3 class="card-title">⬆️ Upload SKU Pricing Data</h3>
-          <div class="drop-zone" id="dropZone"><div class="di">📄</div><div style="margin:8px 0">Drag &amp; drop a CSV, or</div>
-            <label class="btn btn-primary btn-sm">Choose file<input type="file" id="csvFile" accept=".csv" hidden></label>
-            <div class="cell-sub" style="margin-top:8px">Expected columns match the template below.</div>
+        <div class="card"><h3 class="card-title">🤖 Upload raw files — AI extraction</h3>
+          <p class="text-muted" style="font-size:12.5px;margin:0 0 10px">Drop an Excel/CSV sheet <b>or</b> a photo/scan/PDF of a price list or invoice. Claude reads it and fills in category, suppliers, SKU, baseline &amp; future spend, and more — review and edit below.</p>
+          <div class="drop-zone" id="dropZone"><div class="di">📄</div><div style="margin:8px 0">Drag &amp; drop a file, or</div>
+            <label class="btn btn-primary btn-sm">Choose file<input type="file" id="rawFile" accept=".csv,.xlsx,.xls,.png,.jpg,.jpeg,.webp,.gif,.pdf" hidden></label>
+            <div class="cell-sub" style="margin-top:8px">.xlsx · .csv · images · .pdf</div>
           </div>
           <div id="importResult" style="margin-top:12px"></div>
-          <h3 class="card-title" style="margin-top:18px">Template columns</h3>
-          <div class="codeblock">${P.CSV_TEMPLATE_COLUMNS.join(",")}</div>
-          <div style="margin-top:12px;display:flex;gap:10px">
-            <button class="btn btn-outline btn-sm" id="downloadTemplate">⬇ Download template</button>
+          <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn btn-outline btn-sm" id="downloadTemplate">⬇ Download Excel template</button>
             <button class="btn btn-green btn-sm" id="exportAll">⬇ Export all SKUs (CSV)</button>
           </div>
+          <div class="cell-sub" style="margin-top:8px">Recognized columns: ${P.CSV_TEMPLATE_COLUMNS.join(", ")} (extra columns are ignored; missing categories are inferred by AI).</div>
         </div>
 
         <div class="card"><h3 class="card-title">➕ Add / Edit SKU</h3>
@@ -751,34 +852,195 @@
           </div>
           <div id="importResult2" style="margin-top:10px"></div>
         </div>
-      </div>`;
+      </div>
+
+      <div class="section-title" style="margin-top:24px">🛠️ SKU Editor <span class="badge" style="background:var(--navy-50);color:var(--navy);font-weight:600">Admin only</span></div>
+      <div class="card">
+        <div class="toolbar" style="margin-bottom:12px"><div class="field" style="margin:0;flex:1;min-width:260px"><label>Search SKUs</label><input type="text" id="skuSearch" placeholder="Search by product, SKU, category, vendor, or brand…"></div></div>
+        <div id="skuTableWrap">${skuEditorTable(P.SKUS)}</div>
+      </div>
+
+      <div id="skuEditOverlay" class="modal-overlay" style="display:none"></div>`;
     },
     mount() {
-      const handleFile = (input, resultId) => {
-        const file = input.files[0];
+      const isAdmin = () => ((window.CURRENT_USER || {}).role === "Procurement Admin");
+      const setStatus = (html, kind) => {
+        const el = document.getElementById("importResult");
+        if (!el) return;
+        const bg = kind === "err" ? "background:var(--red-bg,#fdecec);border-color:#f3c2c2;color:var(--red,#b42318)"
+          : kind === "ok" ? "background:var(--green-bg);border-color:#bfe6cd;color:var(--green-700)" : "";
+        el.innerHTML = `<div class="notice" style="${bg}">${html}</div>`;
+      };
+      const refreshDataset = () => {
+        const ds = document.getElementById("dataStatus");
+        if (ds) ds.textContent = `${P.SHOPS.length} brand(s) · ${P.SKUS.length} SKU(s) loaded.`;
+        const wrap = document.getElementById("skuTableWrap");
+        if (wrap) wrap.innerHTML = skuEditorTable(filteredSkus());
+      };
+      const filteredSkus = () => {
+        const q = (document.getElementById("skuSearch") || {}).value || "";
+        const t = q.trim().toLowerCase();
+        if (!t) return P.SKUS;
+        return P.SKUS.filter((s) => [s.id, s.productName, s.category, s.subcategory, s.recommendedVendor, s.currentVendor, s.shop]
+          .some((v) => String(v || "").toLowerCase().includes(t)));
+      };
+
+      // ---- Raw-file upload pipeline (Excel/CSV + image/PDF OCR via Claude) ----
+      const num = (v) => { const n = parseFloat(String(v == null ? "" : v).replace(/[^0-9.\-]/g, "")); return isNaN(n) ? 0 : n; };
+      const csvToObjects = (text) => {
+        const rows = P.parseCsv(text);
+        if (!rows.length) return [];
+        const header = rows[0].map((h) => String(h).trim());
+        return rows.slice(1)
+          .filter((r) => r.some((c) => String(c).trim() !== ""))
+          .map((r) => { const o = {}; header.forEach((h, i) => { o[h] = r[i] !== undefined ? r[i] : ""; }); return o; });
+      };
+      const readSheet = (file) => new Promise((resolve, reject) => {
+        const name = (file.name || "").toLowerCase();
+        const r = new FileReader();
+        r.onerror = () => reject(new Error("Could not read the file."));
+        if (name.endsWith(".csv") || file.type === "text/csv") {
+          r.onload = () => resolve(csvToObjects(String(r.result)));
+          r.readAsText(file);
+        } else {
+          r.onload = () => {
+            if (!window.XLSX) { reject(new Error("Spreadsheet library failed to load. Check your connection and retry.")); return; }
+            const wb = window.XLSX.read(new Uint8Array(r.result), { type: "array" });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            resolve(window.XLSX.utils.sheet_to_json(ws, { defval: "" }));
+          };
+          r.readAsArrayBuffer(file);
+        }
+      });
+      const rowToRecord = (row) => {
+        const o = {}; Object.keys(row).forEach((k) => { o[String(k).trim().toLowerCase()] = row[k]; });
+        const g = (names) => { for (const n of names) { if (o[n] !== undefined && String(o[n]).trim() !== "") return String(o[n]).trim(); } return ""; };
+        const qty = num(g(["annual quantity", "annual qty", "quantity", "qty", "volume", "annual volume"]));
+        let cur = num(g(["current unit price", "current price", "old price", "baseline price", "list price", "unit price", "price"]));
+        let nw = num(g(["new unit price", "new price", "negotiated price", "quoted price", "proposed price", "future price"]));
+        const baseSpend = num(g(["baseline spend", "current annual spend", "current spend", "annual spend"]));
+        const futSpend = num(g(["future spend", "new annual spend", "negotiated spend", "projected spend"]));
+        if (!cur && baseSpend && qty) cur = P.round(baseSpend / qty);
+        if (!nw && futSpend && qty) nw = P.round(futSpend / qty);
+        return {
+          id: g(["sku", "sku id", "item number", "item #", "product code"]) || undefined,
+          productName: g(["product name", "product", "item", "item name", "name", "description", "sku description"]),
+          description: g(["description", "details", "long description"]),
+          brand: g(["brand", "shop", "property", "location", "hotel", "site"]),
+          region: g(["region", "area", "market"]),
+          currentVendor: g(["current vendor", "existing vendor", "incumbent vendor", "current supplier"]),
+          recommendedVendor: g(["recommended vendor", "new vendor", "supplier", "vendor", "proposed vendor"]),
+          currentUnitPrice: cur, newUnitPrice: nw, annualQuantity: qty,
+          unitOfMeasure: g(["uom", "unit of measure", "unit"]),
+          packSize: g(["pack size", "pack", "case pack"]),
+          category: g(["category"]),
+          subcategory: g(["subcategory", "sub category", "sub-category"]),
+          qualityTier: g(["quality tier", "tier", "grade"]),
+        };
+      };
+      const fillCategories = async (records) => {
+        const need = [], idxs = [];
+        records.forEach((r, i) => { if (!r.category || !r.subcategory) { need.push(((r.productName || "") + " " + (r.description || "")).trim()); idxs.push(i); } });
+        if (!need.length) return "none";
+        let results, used = "Claude";
+        try {
+          setStatus(`🤖 Asking Claude to categorize ${need.length} item(s)…`);
+          results = await window.AI.categorize(need);
+        } catch (e) {
+          used = "offline";
+          setStatus(`⚠️ Claude unavailable (${esc(e.message)}). Falling back to the built-in categorizer…`);
+          results = window.AI.categorizeLocal(need);
+        }
+        results.forEach((res, k) => {
+          if (!res) return;
+          const r = records[idxs[k]];
+          r.category = r.category || res.category;
+          r.subcategory = r.subcategory || res.subcategory;
+          r.qualityTier = r.qualityTier || res.qualityTier;
+        });
+        return used;
+      };
+      const finishImport = (res, label) => {
+        refreshDataset();
+        setStatus(`✅ ${label}: imported <b>${res.added}</b> SKU(s)${res.brandsCreated ? `, created <b>${res.brandsCreated}</b> new brand(s)` : ""}. Catalog now has ${res.totalSkus} SKU(s) across ${res.totalBrands} brand(s). Review and edit below.`, "ok");
+      };
+      const processSheet = async (file) => {
+        setStatus("⏳ Reading spreadsheet…");
+        const rows = await readSheet(file);
+        const records = rows.map(rowToRecord).filter((r) => r.productName);
+        if (!records.length) { setStatus("No product rows found. Make sure the first row has column headers like Product Name, Current Price, Brand.", "err"); return; }
+        const used = await fillCategories(records);
+        finishImport(P.importRecords(records), used === "offline" ? "Spreadsheet (offline categorizer)" : "Spreadsheet + AI");
+      };
+      const processOcr = async (file) => {
+        setStatus("🤖 Claude is reading the document (OCR)… this can take a few seconds.");
+        let items;
+        try {
+          items = await window.AI.ocr(file);
+        } catch (e) {
+          setStatus(`❌ ${esc(e.message)}`, "err");
+          return;
+        }
+        const records = (items || []).map((it) => ({
+          productName: it.productName, description: it.description || "",
+          brand: it.brand || "", region: it.region || "",
+          currentVendor: it.currentVendor || "", recommendedVendor: it.recommendedVendor || "",
+          currentUnitPrice: num(it.currentUnitPrice), newUnitPrice: num(it.newUnitPrice), annualQuantity: num(it.annualQuantity),
+          unitOfMeasure: it.unitOfMeasure || "", packSize: it.packSize || "",
+          category: it.category || "", subcategory: it.subcategory || "", qualityTier: it.qualityTier || "",
+        })).filter((r) => r.productName);
+        if (!records.length) { setStatus("Claude didn't find any product line items in that file.", "err"); return; }
+        await fillCategories(records);
+        finishImport(P.importRecords(records), "Claude OCR");
+      };
+      const processRawFile = async (file) => {
         if (!file) return;
+        if (!isAdmin()) { setStatus("Only a Procurement Admin can upload data.", "err"); return; }
+        const name = (file.name || "").toLowerCase();
+        const isSheet = /\.(xlsx|xls|csv)$/.test(name) || /sheet|excel|csv/.test(file.type);
+        const isPdf = file.type === "application/pdf" || name.endsWith(".pdf");
+        const isImg = /^image\//.test(file.type) || /\.(png|jpe?g|webp|gif)$/.test(name);
+        try {
+          if (isSheet) await processSheet(file);
+          else if (isImg || isPdf) await processOcr(file);
+          else setStatus("Unsupported file type. Upload .xlsx, .csv, an image, or a PDF.", "err");
+        } catch (e) {
+          setStatus(`❌ ${esc(e.message || e)}`, "err");
+        }
+      };
+
+      const rawInput = document.getElementById("rawFile");
+      if (rawInput) rawInput.addEventListener("change", () => { processRawFile(rawInput.files[0]); rawInput.value = ""; });
+      const csv2 = document.getElementById("csvFile2");
+      if (csv2) csv2.addEventListener("change", () => {
+        const f = csv2.files[0]; if (!f) return;
         const reader = new FileReader();
         reader.onload = () => {
           const result = importCsv(reader.result);
-          const el = document.getElementById(resultId);
+          const el = document.getElementById("importResult2");
           if (el) el.innerHTML = `<div class="notice" style="background:var(--green-bg);border-color:#bfe6cd;color:var(--green-700)">✅ Imported. ${result.added} added, ${result.updated} updated. Catalog now has ${P.SKUS.length} SKUs.</div>`;
+          refreshDataset();
         };
-        reader.readAsText(file);
-      };
-      ["csvFile", "csvFile2"].forEach((id, i) => {
-        const el = document.getElementById(id);
-        if (el) el.addEventListener("change", () => handleFile(el, i === 0 ? "importResult" : "importResult2"));
+        reader.readAsText(f); csv2.value = "";
       });
       const dz = document.getElementById("dropZone");
       if (dz) {
         dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.style.borderColor = "var(--navy)"; });
         dz.addEventListener("dragleave", () => { dz.style.borderColor = ""; });
-        dz.addEventListener("drop", (e) => {
-          e.preventDefault(); dz.style.borderColor = "";
-          const file = e.dataTransfer.files[0];
-          if (file) { const r = new FileReader(); r.onload = () => { const res = importCsv(r.result); document.getElementById("importResult").innerHTML = `<div class="notice" style="background:var(--green-bg);border-color:#bfe6cd;color:var(--green-700)">✅ ${res.added} added, ${res.updated} updated.</div>`; }; r.readAsText(file); }
-        });
+        dz.addEventListener("drop", (e) => { e.preventDefault(); dz.style.borderColor = ""; processRawFile(e.dataTransfer.files[0]); });
       }
+
+      // ---- SKU editor: search + edit (admin only) ----
+      const search = document.getElementById("skuSearch");
+      if (search) search.addEventListener("input", () => { const w = document.getElementById("skuTableWrap"); if (w) w.innerHTML = skuEditorTable(filteredSkus()); });
+      const tableWrap = document.getElementById("skuTableWrap");
+      if (tableWrap) tableWrap.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-edit]");
+        if (!btn) return;
+        if (!isAdmin()) { alert("Only a Procurement Admin can edit SKUs."); return; }
+        openSkuEditor(btn.getAttribute("data-edit"), refreshDataset);
+      });
+
       const dl = (id, fn) => { const e = document.getElementById(id); if (e) e.addEventListener("click", fn); };
       dl("downloadTemplate", () => downloadCsv(P.CSV_TEMPLATE_COLUMNS.join(",") + "\n", "sku-template.csv"));
       dl("exportAll", () => downloadCsv(P.skusToCsv(P.SKUS), "all-skus.csv"));

@@ -374,4 +374,20 @@ input, select, textarea { font-family: inherit; color: var(--ink); }
 }
 .role-name { color: #fff; font-size: 13px; font-weight: 600; line-height: 1.2; }
 
+/* Modal editor (SKU editing) */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 1000; background: rgba(15, 23, 42, 0.55);
+  display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto;
+}
+.modal {
+  background: #fff; border-radius: var(--radius); width: 100%; max-width: 720px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.3); animation: modalPop 0.14s ease-out;
+}
+@keyframes modalPop { from { transform: translateY(-8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--gray-200); }
+.modal-head h3 { margin: 0; font-size: 16px; color: var(--navy-900); }
+.modal-x { background: none; border: none; font-size: 16px; cursor: pointer; color: var(--gray-500, #64748b); line-height: 1; }
+.modal-body { padding: 18px 20px; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--gray-200); }
+
 @media print { .sidebar, .topbar { display: none; } .main { margin-left: 0; } }
