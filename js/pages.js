@@ -130,15 +130,32 @@
     crumb: "Categories",
     render(params) {
       const cats = P.categories();
+      // Build a category tile from the SKUs actually present (so uploaded
+      // categories like "Bath Linens" show even if they aren't in the taxonomy).
+      const catSummary = (name) => {
+        const rows = P.SKUS.filter((s) => s.category === name);
+        const a = P.aggregate(rows);
+        const meta = P.CATEGORY_META[name] || { icon: "📦", color: "var(--navy)" };
+        return { categoryName: name, ...a, topVendors: rows.length ? [P.topVendor(rows)] : [], status: rows.length ? P.groupStatus(rows) : "Not Reviewed", icon: meta.icon, color: meta.color };
+      };
       const active = params[0] ? decodeURIComponent(params[0]) : null;
       if (!active) {
-        return `<div class="page-head"><h1>Category Menu</h1><p>Select a category to drill into subcategories, savings, and recommended suppliers.</p></div>
-          <div class="grid cols-3">${cats.map(U.categoryTile).join("")}</div>`;
+        const present = Array.from(new Set(P.SKUS.map((s) => s.category))).sort();
+        const tiles = present.length
+          ? present.map((name) => U.categoryTile(catSummary(name))).join("")
+          : cats.map(U.categoryTile).join("");
+        return `<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+            <div><h1>Category Menu</h1><p>Select a category to drill into subcategories, savings, and recommended suppliers.</p></div>
+            <button class="btn btn-green btn-sm" id="dlCatReport">⬇ Savings report (by category)</button>
+          </div>
+          <div class="grid cols-3">${tiles}</div>`;
       }
       const meta = P.CATEGORY_META[active] || { icon: "📦", color: "var(--navy)" };
       const subs = P.subcategoriesFor(active);
       const agg = P.aggregate(P.SKUS.filter((s) => s.category === active));
-      const pills = cats.map((c) => `<a class="pill ${c.categoryName === active ? "active" : ""}" href="#/categories/${encodeURIComponent(c.categoryName)}">${c.icon} ${esc(c.categoryName)}</a>`).join("");
+      const present = Array.from(new Set(P.SKUS.map((s) => s.category))).filter(Boolean).sort();
+      const pillCats = present.length ? present : cats.map((c) => c.categoryName);
+      const pills = pillCats.map((name) => `<a class="pill ${name === active ? "active" : ""}" href="#/categories/${encodeURIComponent(name)}">${(P.CATEGORY_META[name] || { icon: "📦" }).icon} ${esc(name)}</a>`).join("");
 
       const subCards = subs.length ? subs.map((s) => `
         <div class="card" style="border-top:3px solid ${meta.color}">
@@ -159,7 +176,10 @@
         </div>`).join("") : `<div class="empty">No SKUs loaded for ${esc(active)} yet.</div>`;
 
       return `
-        <div class="page-head"><h1>${meta.icon} ${esc(active)}</h1><p>Drill into ${esc(active)} subcategories. Each card shows current vs. negotiated spend, savings, and review status.</p></div>
+        <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div><h1>${meta.icon} ${esc(active)}</h1><p>Drill into ${esc(active)} subcategories. Each card shows current vs. negotiated spend, savings, and review status.</p></div>
+          <button class="btn btn-green btn-sm" id="dlCatReport" data-cat="${esc(active)}">⬇ Savings report (${esc(active)})</button>
+        </div>
         <div class="pillbar">${pills}</div>
         <div class="grid cols-4" style="margin-bottom:20px">
           ${U.statCard({ label: "Baseline", value: fmt.money(agg.baselineSpend), accent: "navy" })}
@@ -168,6 +188,17 @@
           ${U.statCard({ label: "SKUs", value: agg.skuCount, accent: "navy" })}
         </div>
         <div class="grid cols-3">${subCards}</div>`;
+    },
+    mount() {
+      const b = document.getElementById("dlCatReport");
+      if (!b) return;
+      b.addEventListener("click", () => {
+        const cat = b.getAttribute("data-cat");
+        const rows = cat ? P.SKUS.filter((s) => s.category === cat) : P.SKUS;
+        if (!rows.length) { alert("No SKUs to report yet — upload data first."); return; }
+        const fname = cat ? "savings-" + cat.replace(/\s+/g, "-").toLowerCase() + ".csv" : "savings-by-category.csv";
+        downloadCsv(categorySavingsReportCsv(rows), fname);
+      });
     },
   };
 
@@ -323,6 +354,38 @@
     a.href = URL.createObjectURL(blob); a.download = filename; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
+  const csvEscape = (v) => { const s = String(v == null ? "" : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  // Savings report grouped by the SKUs' ACTUAL categories (and subcategories),
+  // with a subtotal per category and a grand total.
+  function categorySavingsReportCsv(skus) {
+    const groups = {};
+    skus.forEach((s) => {
+      const c = s.category || "Other", sub = s.subcategory || "Miscellaneous";
+      (groups[c] = groups[c] || {});
+      (groups[c][sub] = groups[c][sub] || []).push(s);
+    });
+    const header = ["Category", "Subcategory", "SKUs", "Current Annual Spend", "New Annual Spend", "Annual Savings", "Savings %"];
+    const lines = [];
+    Object.keys(groups).sort().forEach((cat) => {
+      const subs = groups[cat];
+      Object.keys(subs).sort().forEach((sub) => {
+        const a = P.aggregate(subs[sub]);
+        lines.push([cat, sub, subs[sub].length, P.round(a.baselineSpend), P.round(a.newSpend), P.round(a.savingsOpportunity), P.round(a.savingsPercentage, 1)]);
+      });
+      const all = Object.keys(subs).reduce((acc, k) => acc.concat(subs[k]), []);
+      const a = P.aggregate(all);
+      lines.push([cat, "— All " + cat, all.length, P.round(a.baselineSpend), P.round(a.newSpend), P.round(a.savingsOpportunity), P.round(a.savingsPercentage, 1)]);
+    });
+    const at = P.aggregate(skus);
+    lines.push(["TOTAL", "", skus.length, P.round(at.baselineSpend), P.round(at.newSpend), P.round(at.savingsOpportunity), P.round(at.savingsPercentage, 1)]);
+    return [header].concat(lines).map((r) => r.map(csvEscape).join(",")).join("\n");
+  }
+  // Per-SKU savings export (each row = one SKU, with price-per-each and savings).
+  function skuSavingsCsv(skus) {
+    const header = ["SKU", "Product", "Category", "Subcategory", "Shop", "Current Price/Each", "New Price/Each", "Annual Qty", "Current Annual Spend", "New Annual Spend", "Annual Savings", "Savings %"];
+    const lines = skus.map((s) => [s.sku || s.id, s.productName, s.category, s.subcategory, s.shop, s.currentUnitPrice, s.newUnitPrice, s.annualQuantity, s.currentAnnualSpend, s.newAnnualSpend, s.annualSavings, s.savingsPercentage]);
+    return [header].concat(lines).map((r) => r.map(csvEscape).join(",")).join("\n");
+  }
 
   /* ============================== SAVINGS ============================== */
   PAGES.savings = {
@@ -438,9 +501,12 @@
       }
       const shop = shops.find((s) => s.code === code);
       if (!shop) return `<div class="empty">Shop not found.</div>`;
-      const tabs = ["Overview", "Linens", "Disposables", "Supplies", "Rentals", "Action Items"];
+      // Tabs are driven by the shop's ACTUAL categories, plus an All SKUs tab so
+      // every SKU for the shop is always visible with its savings.
+      const shopCats = Array.from(new Set(shop.rows.map((r) => r.category))).filter(Boolean).sort();
+      const tabs = ["Overview", "All SKUs"].concat(shopCats).concat(["Action Items"]);
       const tab = State.shopTab && tabs.includes(State.shopTab) ? State.shopTab : "Overview";
-      const tabBtns = tabs.map((t) => `<button class="${t === tab ? "active" : ""}" data-tab="${t}">${t}</button>`).join("");
+      const tabBtns = tabs.map((t) => `<button class="${t === tab ? "active" : ""}" data-tab="${t}">${t}${t === "All SKUs" ? ` (${shop.rows.length})` : ""}</button>`).join("");
 
       let tabContent = "";
       if (tab === "Overview") {
@@ -478,15 +544,22 @@
             <span style="margin-left:auto">${a.done ? U.statusBadge("Approved") : U.statusBadge("In Review")}</span>
           </li>`).join("")}</ul></div>`;
       } else {
-        const rows = shop.rows.filter((r) => r.category === tab);
-        tabContent = rows.length ? `<div class="table-wrap"><table class="data" style="min-width:780px"><thead><tr>
-            <th>SKU</th><th>Product</th><th>Subcategory</th><th>Vendor → Rec.</th><th class="num">Current</th><th class="num">New</th><th class="num">Savings</th><th>%</th><th>Status</th>
+        const allTab = tab === "All SKUs";
+        const rows = allTab ? shop.rows : shop.rows.filter((r) => r.category === tab);
+        const toolbar = allTab ? `<div class="toolbar" style="justify-content:space-between">
+            <div class="cell-sub">All ${rows.length} SKU(s) for ${esc(shop.shopName)} · total savings <b class="text-green">${fmt.money(shop.savingsOpportunity)}</b> (${fmt.pct(shop.savingsPercentage)})</div>
+            <button class="btn btn-green btn-sm" id="dlShopSkus">⬇ Download all SKUs (CSV)</button>
+          </div>` : "";
+        const table = rows.length ? `<div class="table-wrap"><table class="data" style="min-width:880px"><thead><tr>
+            <th>SKU</th>${allTab ? "<th>Category</th>" : ""}<th>Product</th><th>Subcategory</th><th>Vendor → Rec.</th><th class="num">Price/Each</th><th class="num">Current</th><th class="num">New</th><th class="num">Savings</th><th>%</th><th>Status</th>
           </tr></thead><tbody>${rows.map((r) => `<tr class="row-link" onclick="location.hash='#/comparison/${r.id}'">
-            <td class="mono">${esc(r.sku || r.id)}</td><td class="cell-strong">${esc(r.productName)}</td><td>${esc(r.subcategory)}</td>
+            <td class="mono">${esc(r.sku || r.id)}</td>${allTab ? `<td>${esc(r.category)}</td>` : ""}<td class="cell-strong">${esc(r.productName)}</td><td>${esc(r.subcategory)}</td>
             <td>${esc(r.currentVendor)}<div class="cell-sub">→ ${esc(r.recommendedVendor)}</div></td>
+            <td class="num"><span class="price-old">${fmt.money(r.currentUnitPrice, 2)}</span><div class="text-green cell-strong">${fmt.money(r.newUnitPrice, 2)}</div></td>
             <td class="num">${fmt.money(r.currentAnnualSpend)}</td><td class="num text-green">${fmt.money(r.newAnnualSpend)}</td>
             <td class="num cell-strong text-green">${fmt.money(r.annualSavings)}</td><td>${U.savingsBadge(r.savingsPercentage)}</td><td>${U.statusBadge(r.implementationStatus)}</td>
           </tr>`).join("")}</tbody></table></div>` : `<div class="empty">No ${esc(tab)} SKUs assigned to ${esc(shop.shopName)}.</div>`;
+        tabContent = toolbar + table;
       }
 
       return `
@@ -499,6 +572,14 @@
         State.shopTab = b.getAttribute("data-tab");
         window.App.renderCurrent();
       }));
+      const dl = document.getElementById("dlShopSkus");
+      if (dl) dl.addEventListener("click", () => {
+        const m = location.hash.match(/#\/shops\/([^/?]+)/);
+        if (!m) return;
+        const shop = P.shops().find((s) => s.code === decodeURIComponent(m[1]));
+        if (!shop || !shop.rows.length) { alert("No SKUs for this shop yet."); return; }
+        downloadCsv(skuSavingsCsv(shop.rows), "shop-" + shop.code.replace(/\s+/g, "-").toLowerCase() + "-skus.csv");
+      });
     },
   };
 
