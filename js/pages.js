@@ -34,7 +34,7 @@
     title: "Dashboard",
     crumb: "Dashboard",
     render() {
-      const cats = P.categories();
+      const cats = P.categoryGroups();
       const totals = P.aggregate(P.SKUS);
       const vendorCount = P.VENDORS.length;
       const shops = P.shops();
@@ -129,38 +129,27 @@
     title: "Categories",
     crumb: "Categories",
     render(params) {
-      const cats = P.categories();
-      // Build a category tile from the SKUs actually present (so uploaded
-      // categories like "Bath Linens" show even if they aren't in the taxonomy).
-      const catSummary = (name) => {
-        const rows = P.SKUS.filter((s) => s.category === name);
-        const a = P.aggregate(rows);
-        const meta = P.CATEGORY_META[name] || { icon: "📦", color: "var(--navy)" };
-        return { categoryName: name, ...a, topVendors: rows.length ? [P.topVendor(rows)] : [], status: rows.length ? P.groupStatus(rows) : "Not Reviewed", icon: meta.icon, color: meta.color };
-      };
+      // Tiles are the broad category groups (Linens, Disposables, …); detailed
+      // categories (Bath Linens, Bed Linens) appear when you drill in.
+      const groups = P.categoryGroups();
       const active = params[0] ? decodeURIComponent(params[0]) : null;
       if (!active) {
-        const present = Array.from(new Set(P.SKUS.map((s) => s.category))).sort();
-        const tiles = present.length
-          ? present.map((name) => U.categoryTile(catSummary(name))).join("")
-          : cats.map(U.categoryTile).join("");
+        const tiles = groups.length ? groups.map(U.categoryTile).join("") : P.categories().map(U.categoryTile).join("");
         return `<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
-            <div><h1>Category Menu</h1><p>Select a category to drill into subcategories, savings, and recommended suppliers.</p></div>
+            <div><h1>Category Menu</h1><p>Select a category to drill into its detailed categories, savings, and recommended suppliers.</p></div>
             <button class="btn btn-green btn-sm" id="dlCatReport">⬇ Savings report (by category)</button>
           </div>
           <div class="grid cols-3">${tiles}</div>`;
       }
       const meta = P.CATEGORY_META[active] || { icon: "📦", color: "var(--navy)" };
-      const subs = P.subcategoriesFor(active);
-      const agg = P.aggregate(P.SKUS.filter((s) => s.category === active));
-      const present = Array.from(new Set(P.SKUS.map((s) => s.category))).filter(Boolean).sort();
-      const pillCats = present.length ? present : cats.map((c) => c.categoryName);
-      const pills = pillCats.map((name) => `<a class="pill ${name === active ? "active" : ""}" href="#/categories/${encodeURIComponent(name)}">${(P.CATEGORY_META[name] || { icon: "📦" }).icon} ${esc(name)}</a>`).join("");
+      const detail = P.categoriesInGroup(active);
+      const agg = P.aggregate(P.SKUS.filter((s) => s.categoryGroup === active));
+      const pills = groups.map((g) => `<a class="pill ${g.categoryName === active ? "active" : ""}" href="#/categories/${encodeURIComponent(g.categoryName)}">${g.icon} ${esc(g.categoryName)}</a>`).join("");
 
-      const subCards = subs.length ? subs.map((s) => `
+      const subCards = detail.length ? detail.map((s) => `
         <div class="card" style="border-top:3px solid ${meta.color}">
           <div style="display:flex;justify-content:space-between;align-items:flex-start">
-            <h3 class="card-title" style="margin-bottom:4px">${esc(s.subcategoryName)}</h3>
+            <h3 class="card-title" style="margin-bottom:4px">${esc(s.categoryName)}</h3>
             ${U.savingsBadge(s.savingsPercentage)}
           </div>
           <div class="card-sub">${s.skuCount} SKU${s.skuCount !== 1 ? "s" : ""} · ${esc(s.recommendedSupplier)}</div>
@@ -171,13 +160,13 @@
           </div>
           <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--gray-100);padding-top:11px">
             ${U.statusBadge(s.status)}
-            <a class="btn btn-outline btn-sm" href="#/catalog?category=${encodeURIComponent(active)}&subcategory=${encodeURIComponent(s.subcategoryName)}">View SKUs →</a>
+            <a class="btn btn-outline btn-sm" href="#/catalog?category=${encodeURIComponent(s.categoryName)}">View SKUs →</a>
           </div>
         </div>`).join("") : `<div class="empty">No SKUs loaded for ${esc(active)} yet.</div>`;
 
       return `
         <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
-          <div><h1>${meta.icon} ${esc(active)}</h1><p>Drill into ${esc(active)} subcategories. Each card shows current vs. negotiated spend, savings, and review status.</p></div>
+          <div><h1>${meta.icon} ${esc(active)}</h1><p>Detailed categories under ${esc(active)}. Each card shows current vs. negotiated spend, savings, and review status.</p></div>
           <button class="btn btn-green btn-sm" id="dlCatReport" data-cat="${esc(active)}">⬇ Savings report (${esc(active)})</button>
         </div>
         <div class="pillbar">${pills}</div>
@@ -193,10 +182,10 @@
       const b = document.getElementById("dlCatReport");
       if (!b) return;
       b.addEventListener("click", () => {
-        const cat = b.getAttribute("data-cat");
-        const rows = cat ? P.SKUS.filter((s) => s.category === cat) : P.SKUS;
+        const grp = b.getAttribute("data-cat");
+        const rows = grp ? P.SKUS.filter((s) => s.categoryGroup === grp) : P.SKUS;
         if (!rows.length) { alert("No SKUs to report yet — upload data first."); return; }
-        const fname = cat ? "savings-" + cat.replace(/\s+/g, "-").toLowerCase() + ".csv" : "savings-by-category.csv";
+        const fname = grp ? "savings-" + grp.replace(/\s+/g, "-").toLowerCase() + ".csv" : "savings-by-category.csv";
         downloadCsv(categorySavingsReportCsv(rows), fname);
       });
     },
@@ -355,26 +344,26 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
   const csvEscape = (v) => { const s = String(v == null ? "" : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-  // Savings report grouped by the SKUs' ACTUAL categories (and subcategories),
-  // with a subtotal per category and a grand total.
+  // Savings report rolled up by broad category group → detailed category, with
+  // a subtotal per group and a grand total.
   function categorySavingsReportCsv(skus) {
     const groups = {};
     skus.forEach((s) => {
-      const c = s.category || "Other", sub = s.subcategory || "Miscellaneous";
-      (groups[c] = groups[c] || {});
-      (groups[c][sub] = groups[c][sub] || []).push(s);
+      const g = s.categoryGroup || "Other", c = s.category || "Other";
+      (groups[g] = groups[g] || {});
+      (groups[g][c] = groups[g][c] || []).push(s);
     });
-    const header = ["Category", "Subcategory", "SKUs", "Current Annual Spend", "New Annual Spend", "Annual Savings", "Savings %"];
+    const header = ["Category Group", "Category", "SKUs", "Current Annual Spend", "New Annual Spend", "Annual Savings", "Savings %"];
     const lines = [];
-    Object.keys(groups).sort().forEach((cat) => {
-      const subs = groups[cat];
-      Object.keys(subs).sort().forEach((sub) => {
-        const a = P.aggregate(subs[sub]);
-        lines.push([cat, sub, subs[sub].length, P.round(a.baselineSpend), P.round(a.newSpend), P.round(a.savingsOpportunity), P.round(a.savingsPercentage, 1)]);
+    Object.keys(groups).sort().forEach((grp) => {
+      const cats = groups[grp];
+      Object.keys(cats).sort().forEach((cat) => {
+        const a = P.aggregate(cats[cat]);
+        lines.push([grp, cat, cats[cat].length, P.round(a.baselineSpend), P.round(a.newSpend), P.round(a.savingsOpportunity), P.round(a.savingsPercentage, 1)]);
       });
-      const all = Object.keys(subs).reduce((acc, k) => acc.concat(subs[k]), []);
+      const all = Object.keys(cats).reduce((acc, k) => acc.concat(cats[k]), []);
       const a = P.aggregate(all);
-      lines.push([cat, "— All " + cat, all.length, P.round(a.baselineSpend), P.round(a.newSpend), P.round(a.savingsOpportunity), P.round(a.savingsPercentage, 1)]);
+      lines.push([grp, "— All " + grp, all.length, P.round(a.baselineSpend), P.round(a.newSpend), P.round(a.savingsOpportunity), P.round(a.savingsPercentage, 1)]);
     });
     const at = P.aggregate(skus);
     lines.push(["TOTAL", "", skus.length, P.round(at.baselineSpend), P.round(at.newSpend), P.round(at.savingsOpportunity), P.round(at.savingsPercentage, 1)]);
@@ -487,7 +476,8 @@
       const shops = P.shops();
       const code = params[0] ? decodeURIComponent(params[0]) : null;
       if (!code) {
-        const cards = shops.map((s) => `<a class="cat-tile" href="#/shops/${encodeURIComponent(s.code)}">
+        const cards = shops.map((s) => `<div class="cat-tile-wrap" style="position:relative">
+          <a class="cat-tile" href="#/shops/${encodeURIComponent(s.code)}">
           <div class="tile-head" style="background:var(--navy)"><span class="ic">🏬</span><span class="nm">${esc(s.shopName)}</span></div>
           <div class="tile-body">
             <div class="tile-metric"><span class="k">Region</span><span class="v">${esc(s.region)}</span></div>
@@ -495,15 +485,20 @@
             <div class="tile-metric"><span class="k">New spend</span><span class="v">${fmt.money(s.newSpend)}</span></div>
             <div class="tile-metric"><span class="k">Savings</span><span class="v text-green">${fmt.money(s.savingsOpportunity)}</span></div>
             <div class="tile-foot">${U.savingsBadge(s.savingsPercentage)}${U.statusBadge(s.implementationStatus)}</div>
-          </div></a>`).join("");
-        return `<div class="page-head"><h1>Shop View</h1><p>Decentralized shop dashboards. Each shop sees only its own relevant savings opportunities and action items.</p></div>
+          </div></a>
+          <button class="btn btn-outline btn-sm" data-shop-dl="${esc(s.code)}" style="position:absolute;top:10px;right:10px">⬇ CSV</button>
+        </div>`).join("");
+        return `<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+            <div><h1>Shop View</h1><p>Decentralized shop dashboards. Each shop sees only its own relevant savings opportunities and action items.</p></div>
+            <button class="btn btn-green btn-sm" id="dlAllShops">⬇ All shops — savings (CSV)</button>
+          </div>
           <div class="grid cols-3">${cards}</div>`;
       }
       const shop = shops.find((s) => s.code === code);
       if (!shop) return `<div class="empty">Shop not found.</div>`;
       // Tabs are driven by the shop's ACTUAL categories, plus an All SKUs tab so
       // every SKU for the shop is always visible with its savings.
-      const shopCats = Array.from(new Set(shop.rows.map((r) => r.category))).filter(Boolean).sort();
+      const shopCats = Array.from(new Set(shop.rows.map((r) => r.categoryGroup))).filter(Boolean).sort();
       const tabs = ["Overview", "All SKUs"].concat(shopCats).concat(["Action Items"]);
       const tab = State.shopTab && tabs.includes(State.shopTab) ? State.shopTab : "Overview";
       const tabBtns = tabs.map((t) => `<button class="${t === tab ? "active" : ""}" data-tab="${t}">${t}${t === "All SKUs" ? ` (${shop.rows.length})` : ""}</button>`).join("");
@@ -545,7 +540,7 @@
           </li>`).join("")}</ul></div>`;
       } else {
         const allTab = tab === "All SKUs";
-        const rows = allTab ? shop.rows : shop.rows.filter((r) => r.category === tab);
+        const rows = allTab ? shop.rows : shop.rows.filter((r) => r.categoryGroup === tab);
         const toolbar = allTab ? `<div class="toolbar" style="justify-content:space-between">
             <div class="cell-sub">All ${rows.length} SKU(s) for ${esc(shop.shopName)} · total savings <b class="text-green">${fmt.money(shop.savingsOpportunity)}</b> (${fmt.pct(shop.savingsPercentage)})</div>
             <button class="btn btn-green btn-sm" id="dlShopSkus">⬇ Download all SKUs (CSV)</button>
@@ -580,6 +575,18 @@
         if (!shop || !shop.rows.length) { alert("No SKUs for this shop yet."); return; }
         downloadCsv(skuSavingsCsv(shop.rows), "shop-" + shop.code.replace(/\s+/g, "-").toLowerCase() + "-skus.csv");
       });
+      // Shop grid: combined export + per-shop export.
+      const dlAll = document.getElementById("dlAllShops");
+      if (dlAll) dlAll.addEventListener("click", () => {
+        if (!P.SKUS.length) { alert("No SKUs loaded yet."); return; }
+        downloadCsv(skuSavingsCsv(P.SKUS), "all-shops-savings.csv");
+      });
+      document.querySelectorAll("[data-shop-dl]").forEach((b) => b.addEventListener("click", (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const shop = P.shops().find((s) => s.code === b.getAttribute("data-shop-dl"));
+        if (!shop || !shop.rows.length) { alert("No SKUs for this shop yet."); return; }
+        downloadCsv(skuSavingsCsv(shop.rows), "shop-" + shop.code.replace(/\s+/g, "-").toLowerCase() + "-skus.csv");
+      }));
     },
   };
 
