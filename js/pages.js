@@ -2080,13 +2080,13 @@
   };
 
   /* ============== BUYING PATTERNS (AP spend seasonality) ============== */
-  const AP_HELP = `<div class="notice" style="margin-top:14px">📄 Upload a CSV or Excel export of your AP spend. Columns (header row required): <b>Date, Shop, Category, Subcategory, Vendor, Amount, Quantity, Description</b>. Only Date, Category and Amount are essential — Shop lets you filter per property, and Category drives the seasonality breakdown.</div>`;
+  const AP_HELP = `<div class="notice" style="margin-top:14px">🤖 <b>Upload spend data in any format</b> — Excel, CSV, a PDF statement, or a photo of an invoice. Claude reads the file, figures out the columns, normalizes dates and amounts, and classifies each line into a category for you. No fixed template needed (though tidy columns like Date / Shop / Category / Amount help).</div>`;
 
   function apUploadControls(canEdit, hasData) {
     if (!canEdit) return hasData ? "" : `<div class="cell-sub" style="margin-top:10px">Ask a Procurement Admin to upload AP spend data.</div>`;
     return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px">
-        <input type="file" id="apFile" accept=".csv,.xlsx,.xls" style="display:none">
-        <button class="btn btn-primary btn-sm" id="apUploadBtn">⬆ Upload AP spend</button>
+        <input type="file" id="apFile" accept=".csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg,.txt,.tsv" style="display:none">
+        <button class="btn btn-primary btn-sm" id="apUploadBtn">🤖 Smart upload spend</button>
         <button class="btn btn-outline btn-sm" id="apTemplate">⬇ CSV template</button>
         ${hasData ? `<button class="btn btn-outline btn-sm" id="apClear">🗑 Clear AP data</button>` : ""}
         <span class="cell-sub" id="apMsg"></span>
@@ -2178,32 +2178,62 @@
       const btn = document.getElementById("apUploadBtn");
       const file = document.getElementById("apFile");
       const msg = document.getElementById("apMsg");
+
+      // Read a spreadsheet (CSV/XLSX) into a header+rows matrix.
+      async function readMatrix(f) {
+        const name = f.name.toLowerCase();
+        if (name.endsWith(".csv") || f.type === "text/csv") return P.parseCsv(await f.text());
+        const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
+        let matrix = [];
+        wb.SheetNames.forEach((sn, i) => {
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: false, defval: "" });
+          matrix = i === 0 ? rows : matrix.concat(rows.slice(1));
+        });
+        return matrix;
+      }
+
       if (btn && file) {
         btn.addEventListener("click", () => file.click());
         file.addEventListener("change", async () => {
           const f = file.files && file.files[0];
           if (!f) return;
-          msg.textContent = "Reading " + f.name + "…";
+          const name = f.name.toLowerCase();
+          const isDoc = /\.(pdf|png|jpe?g)$/.test(name) || /^(image|application\/pdf)/.test(f.type || "");
+          const isTable = /\.(csv|xlsx|xls)$/.test(name) || /csv|sheet|excel/.test(f.type || "");
+          const aiReady = window.AI && window.Store && window.Store.available();
           try {
-            let matrix;
-            const name = f.name.toLowerCase();
-            if (name.endsWith(".csv") || f.type === "text/csv") {
-              matrix = P.parseCsv(await f.text());
+            let added = 0;
+            if (isDoc) {
+              // Documents/images: Claude extracts dated spend lines directly.
+              msg.textContent = "🤖 Claude is reading " + f.name + "…";
+              const items = await window.AI.extractSpend({ file: f });
+              ({ added } = P.ingestApItems(items));
+            } else if (isTable) {
+              const matrix = await readMatrix(f);
+              if (!matrix.length) { msg.textContent = "⚠️ Could not read any rows."; return; }
+              let mapping = null;
+              if (aiReady) {
+                try {
+                  msg.textContent = "🤖 Claude is mapping your columns…";
+                  mapping = await window.AI.mapColumns(matrix[0], matrix.slice(1, 25));
+                } catch (_) { mapping = null; } // fall back to header matching
+              }
+              msg.textContent = "Importing rows…";
+              ({ added } = P.ingestApRows(matrix, mapping));
             } else {
-              const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
-              matrix = [];
-              wb.SheetNames.forEach((sn, i) => {
-                const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: false, defval: "" });
-                matrix = i === 0 ? rows : matrix.concat(rows.slice(1));
-              });
+              // Unknown/free-text (.txt/.tsv/etc.): let Claude parse the text.
+              msg.textContent = "🤖 Claude is reading your data…";
+              const items = await window.AI.extractSpend({ text: await f.text() });
+              ({ added } = P.ingestApItems(items));
             }
-            const { added } = P.ingestApRows(matrix);
-            if (!added) { msg.textContent = "⚠️ No dated rows found — check the Date/Amount columns."; return; }
+            if (!added) { msg.textContent = "⚠️ No dated spend lines were found in that file."; return; }
             msg.textContent = `Saving ${added} lines…`;
             if (window.Store && window.Store.available()) await window.Store.pushAp();
             window.App.renderCurrent();
           } catch (e) {
             msg.textContent = "⚠️ " + (e.message || e);
+          } finally {
+            file.value = "";
           }
         });
       }

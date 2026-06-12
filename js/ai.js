@@ -138,6 +138,23 @@
     };
   }
 
+  // Smart spend ingestion (any format). For a document (PDF/image) or free
+  // text, Claude extracts normalized, dated spend line items.
+  async function extractSpend(input) {
+    const payload = input.file
+      ? await toBase64(input.file)
+      : { text: String(input.text || "") };
+    const res = await invoke("spend", Object.assign({ taxonomy: taxonomy() }, payload));
+    return res.items || [];
+  }
+
+  // Ask Claude to map an arbitrary table's columns to our schema. `samples`
+  // are a handful of data rows (arrays). Returns { date, shop, ... , dateFormat }.
+  async function mapColumns(header, samples) {
+    const res = await invoke("mapcols", { header, samples });
+    return res.mapping || {};
+  }
+
   function toBase64(file) {
     return new Promise((resolve, reject) => {
       const r = new FileReader();
@@ -163,5 +180,5 @@
     });
   }
 
-  window.AI = { categorize, ocr, contractExtract, analyze, ask, snapshot, categorizeLocal, taxonomy, getProvider, setProvider, providers };
+  window.AI = { categorize, ocr, contractExtract, analyze, ask, snapshot, extractSpend, mapColumns, categorizeLocal, taxonomy, getProvider, setProvider, providers };
 })();
