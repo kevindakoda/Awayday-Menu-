@@ -146,3 +146,12 @@ begin
     execute format('create policy %I on public.%I for delete to authenticated using (can_edit_procurement())', t||' editor delete', t);
   end loop;
 end $$;
+
+-- ---------- Hardening (security advisor) ----------
+-- is_admin(): still executable by authenticated (required by the admins RLS
+-- policies), but not by anon — no anon policy uses it.
+revoke execute on function public.is_admin() from anon;
+
+-- enforce_profile_privilege_lock(): trigger-only function; nobody needs to
+-- call it via RPC. Triggers fire regardless of the caller's EXECUTE grant.
+revoke execute on function public.enforce_profile_privilege_lock() from anon, authenticated;
