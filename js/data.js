@@ -929,6 +929,117 @@
     return rows.filter((r) => r.length > 1 || (r.length === 1 && r[0] !== ""));
   }
 
+  /* ----------------------- AP spend (buying patterns) ----------------------- */
+  // Time-stamped accounts-payable purchase lines. Unlike SKUS (annual totals),
+  // these carry a date so we can show WHEN each category is bought.
+  const AP = [];
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const AP_TEMPLATE_COLUMNS = ["Date", "Shop", "Category", "Subcategory", "Vendor", "Amount", "Quantity", "Description"];
+  let apSeq = 1;
+
+  // Parse a variety of date encodings into a JS Date (or null).
+  function parseApDate(v) {
+    if (v == null || v === "") return null;
+    if (typeof v === "number" && isFinite(v)) { // Excel serial day
+      const d = new Date(Math.round((v - 25569) * 86400000));
+      return isNaN(+d) ? null : d;
+    }
+    const s = String(v).trim();
+    let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+    m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+    if (m) { let y = +m[3]; if (y < 100) y += 2000; return new Date(y, +m[1] - 1, +m[2]); }
+    const d = new Date(s);
+    return isNaN(+d) ? null : d;
+  }
+
+  function makeApRow(f) {
+    const d = f._date instanceof Date ? f._date : parseApDate(f.date);
+    const amount = +String(f.amount == null ? "" : f.amount).replace(/[$,\s]/g, "") || 0;
+    const qty = +String(f.quantity == null ? "" : f.quantity).replace(/[$,\s]/g, "") || 0;
+    const category = (f.category || "").trim();
+    const group = categoryGroupOf(category, f.subcategory, f.description || f.vendor);
+    return {
+      id: f.id || ("AP-" + (apSeq++)),
+      date: d ? d.toISOString().slice(0, 10) : "",
+      year: d ? d.getFullYear() : 0,
+      monthIndex: d ? d.getMonth() : -1,
+      ym: d ? (d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0")) : "",
+      shop: f.shop || "", shopCode: f.shopCode || "", region: f.region || "",
+      category: category || "Other", categoryGroup: group, subcategory: f.subcategory || "",
+      vendor: f.vendor || "", amount: round(amount), quantity: qty, description: f.description || "",
+    };
+  }
+
+  // Resolve a free-text shop/property string to a known brand (by code or name)
+  // so AP rows align with the catalog's shops and inherit a region.
+  function resolveApShop(rec) {
+    const raw = String(rec.shop || "").trim();
+    if (!raw) return rec;
+    const hit = SHOPS.find((b) => b.code.toLowerCase() === raw.toLowerCase() || b.shopName.toLowerCase() === raw.toLowerCase());
+    if (hit) { rec.shop = hit.shopName; rec.shopCode = hit.code; rec.region = rec.region || hit.region; }
+    return rec;
+  }
+
+  // Ingest a header+rows matrix (from CSV/XLSX) into AP. Flexible header match.
+  function ingestApRows(matrix) {
+    if (!matrix || !matrix.length) return { added: 0 };
+    const header = matrix[0].map((h) => String(h == null ? "" : h).trim().toLowerCase());
+    const find = (names) => { for (const n of names) { const i = header.findIndex((h) => h === n || h.includes(n)); if (i >= 0) return i; } return -1; };
+    const di = find(["date", "invoice date", "posting date", "period", "month"]);
+    const si = find(["shop", "property", "location", "store", "brand"]);
+    const ci = find(["category"]);
+    const subi = find(["subcategory", "sub category", "sub-category"]);
+    const vi = find(["vendor", "supplier", "payee"]);
+    const ai = find(["amount", "spend", "total", "cost", "ext price", "extended", "value"]);
+    const qi = find(["quantity", "qty", "units"]);
+    const desi = find(["description", "item", "product", "memo", "detail"]);
+    let added = 0;
+    for (let r = 1; r < matrix.length; r++) {
+      const row = matrix[r];
+      if (!row || !row.length) continue;
+      const get = (i) => (i >= 0 ? row[i] : "");
+      const rec = makeApRow({
+        date: get(di), shop: String(get(si) || "").trim(), category: get(ci), subcategory: get(subi),
+        vendor: get(vi), amount: get(ai), quantity: get(qi), description: get(desi),
+      });
+      if (!rec.date && !rec.amount) continue;
+      resolveApShop(rec);
+      AP.push(rec);
+      added++;
+    }
+    return { added };
+  }
+
+  function apClear() { AP.length = 0; }
+  function apShops() { return Array.from(new Set(AP.map((r) => r.shop).filter(Boolean))).sort(); }
+
+  // Aggregate AP into calendar-month seasonality (Jan–Dec across all years) and
+  // a chronological trend, optionally filtered to one shop.
+  function apSummary(shop) {
+    const rows = AP.filter((r) => r.date && (!shop || shop === "All" || r.shop === shop));
+    const total = round(rows.reduce((a, r) => a + r.amount, 0));
+    const byCalMonth = Array(12).fill(0);
+    rows.forEach((r) => { if (r.monthIndex >= 0) byCalMonth[r.monthIndex] += r.amount; });
+    const groups = {};
+    rows.forEach((r) => {
+      const g = groups[r.categoryGroup] || (groups[r.categoryGroup] = { total: 0, m: Array(12).fill(0) });
+      g.total += r.amount; if (r.monthIndex >= 0) g.m[r.monthIndex] += r.amount;
+    });
+    const categories = Object.keys(groups).map((name) => {
+      const g = groups[name]; let peak = -1, pv = -1;
+      g.m.forEach((v, i) => { if (v > pv) { pv = v; peak = i; } });
+      return { group: name, total: round(g.total), byCalMonth: g.m.map((x) => round(x)), peakMonth: peak, peakValue: round(pv) };
+    }).sort((a, b) => b.total - a.total);
+    const ymMap = {};
+    rows.forEach((r) => { if (r.ym) ymMap[r.ym] = (ymMap[r.ym] || 0) + r.amount; });
+    const trend = Object.keys(ymMap).sort().map((k) => ({ ym: k, amount: round(ymMap[k]) }));
+    let peakMonth = -1, pmv = -1;
+    byCalMonth.forEach((v, i) => { if (v > pmv) { pmv = v; peakMonth = i; } });
+    const dates = rows.map((r) => r.date).filter(Boolean).sort();
+    return { rows: rows.length, total, byCalMonth: byCalMonth.map((x) => round(x)), categories, trend, peakMonth, minDate: dates[0] || "", maxDate: dates[dates.length - 1] || "" };
+  }
+
   /* -------------------------------- Formatters -------------------------------- */
   const fmtMoney = (n, dec = 0) => "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec });
   const fmtMoneyShort = (n) => {
@@ -952,6 +1063,14 @@
     CATEGORY_ORDER,
     SKUS,
     CONTRACTS,
+    AP,
+    MONTHS,
+    AP_TEMPLATE_COLUMNS,
+    makeApRow,
+    ingestApRows,
+    apSummary,
+    apShops,
+    apClear,
     importContract,
     deleteContract,
     contractsByVendor,
