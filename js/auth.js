@@ -7,6 +7,10 @@
   "use strict";
   const cfg = window.PSP_CONFIG;
   let client = null;
+  // Captured before supabase-js consumes the URL hash: invited (or password
+  // recovery) users arrive with #access_token=…&type=invite and must set a
+  // password before entering the app.
+  const inviteLanding = /[#&]type=(invite|recovery)/.test(location.hash);
 
   function sb() {
     if (!client) {
@@ -143,11 +147,56 @@
     location.reload();
   }
 
+  function showSetPassword(session) {
+    const root = $("loginScreen");
+    const app = $("appRoot");
+    if (app) app.style.display = "none";
+    if (root) {
+      root.style.display = "block";
+      root.innerHTML = `
+      <div class="login-wrap">
+        <div class="login-card">
+          <div class="login-brand"><span class="login-logo">📈</span>
+            <div><div class="login-title">Welcome to the Savings Portal</div>
+            <div class="login-sub">You're invited as ${session.user.email}. Set a password to finish.</div></div>
+          </div>
+          <form id="pwForm">
+            <div class="field"><label>New password</label>
+              <input type="password" id="pwNew" placeholder="At least 8 characters" required minlength="8" autocomplete="new-password"></div>
+            <div class="field"><label>Confirm password</label>
+              <input type="password" id="pwConfirm" placeholder="••••••••" required autocomplete="new-password"></div>
+            <div id="loginMsg" class="login-msg"></div>
+            <button type="submit" class="btn btn-primary" id="pwBtn" style="width:100%;justify-content:center">Set password &amp; enter</button>
+          </form>
+          <div class="login-foot">Your role has already been assigned by the portal owner</div>
+        </div>
+      </div>`;
+    }
+    const form = $("pwForm");
+    if (form) form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const pw = $("pwNew").value, pw2 = $("pwConfirm").value;
+      if (pw !== pw2) { setMsg("Passwords do not match.", "err"); return; }
+      const btn = $("pwBtn");
+      btn.disabled = true; btn.textContent = "Saving…";
+      const { error } = await sb().auth.updateUser({ password: pw });
+      if (error) {
+        setMsg(error.message || "Could not set the password.", "err");
+        btn.disabled = false; btn.textContent = "Set password & enter";
+        return;
+      }
+      await onAuthed(session);
+    });
+    const first = $("pwNew");
+    if (first) first.focus();
+  }
+
   async function boot() {
     const client = sb();
     if (!client) { showLogin("Unable to load authentication. Please retry."); return; }
     const { data } = await client.auth.getSession();
     if (data && data.session) {
+      if (inviteLanding) { showSetPassword(data.session); return; }
       await onAuthed(data.session);
     } else {
       showLogin();

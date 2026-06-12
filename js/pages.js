@@ -1770,12 +1770,63 @@
           </tr>`;
         }).join("");
 
+        const isOwner = adminEmails.has(String(me.email || "").toLowerCase());
+        const inviteForm = isOwner ? `
+          <div style="border-top:1px solid var(--gray-200);margin-top:14px;padding-top:14px">
+            <h3 class="card-title">✉️ Invite a user <span class="badge purple">owner only</span></h3>
+            <p class="cell-sub" style="margin:4px 0 10px">Sends an email invitation and pre-assigns the role — the user just clicks the link and sets a password.</p>
+            <div class="grid cols-4" style="gap:10px;margin-bottom:10px">
+              <div class="field" style="margin:0"><label>Email</label><input type="email" id="invEmail" placeholder="teammate@company.com"></div>
+              <div class="field" style="margin:0"><label>Full name</label><input type="text" id="invName" placeholder="Jane Doe"></div>
+              <div class="field" style="margin:0"><label>Role</label><select id="invRole" class="approve-select" style="max-width:none;width:100%">${roleOpts("Shop Manager")}</select></div>
+              <div class="field" style="margin:0"><label>Shop</label><select id="invShop" class="approve-select" style="max-width:none;width:100%">${shopOpts("")}</select></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <button class="btn btn-primary btn-sm" id="invSend">Send invitation</button>
+              <span class="cell-sub" id="invMsg"></span>
+            </div>
+          </div>` : "";
+
         box.innerHTML = `
           ${profiles.length ? `<div class="table-wrap" style="border:none"><table class="data" style="min-width:760px"><thead><tr>
             <th>User</th><th>Role</th><th>Shop</th><th>Region</th><th>Joined</th><th></th>
           </tr></thead><tbody>${rows}</tbody></table></div>`
-          : `<div class="cell-sub">No users yet. Share the portal URL — new sign-ups will appear here.</div>`}
-          ${isAdmin ? "" : `<div class="notice" style="margin-top:10px">🔒 Only a Procurement Admin can change roles.</div>`}`;
+          : `<div class="cell-sub">No users yet. Use the invitation form below or share the portal URL — sign-ups will appear here.</div>`}
+          ${isAdmin ? "" : `<div class="notice" style="margin-top:10px">🔒 Only a Procurement Admin can change roles.</div>`}
+          ${inviteForm}`;
+
+        const sendBtn = document.getElementById("invSend");
+        if (sendBtn) sendBtn.addEventListener("click", async () => {
+          const msg = document.getElementById("invMsg");
+          const email = (document.getElementById("invEmail").value || "").trim();
+          if (!email) { msg.textContent = "Enter an email address."; return; }
+          sendBtn.disabled = true; msg.textContent = "Sending invitation…";
+          try {
+            const { data, error } = await client.functions.invoke("admin-invite", {
+              body: {
+                email,
+                fullName: (document.getElementById("invName").value || "").trim(),
+                role: document.getElementById("invRole").value,
+                shop: document.getElementById("invShop").value,
+                region: "",
+                redirectTo: location.origin + location.pathname,
+              },
+            });
+            if (error) {
+              let m = error.message || "Invite failed.";
+              try { const b = await error.context.json(); if (b && b.error) m = b.error; } catch (_) { /* ignore */ }
+              throw new Error(m);
+            }
+            if (data && data.error) throw new Error(data.error);
+            msg.textContent = `✅ Invitation sent to ${email} as ${data.role}.`;
+            document.getElementById("invEmail").value = ""; document.getElementById("invName").value = "";
+            setTimeout(load, 1200);
+          } catch (e) {
+            msg.textContent = "⚠️ " + (e.message || e);
+          } finally {
+            sendBtn.disabled = false;
+          }
+        });
 
         if (!isAdmin) return;
         box.querySelectorAll("tr[data-uid]").forEach((tr) => {
