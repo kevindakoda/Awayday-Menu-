@@ -15,13 +15,16 @@
     { id: "vendors", label: "Vendors", icon: "🏷️", route: "#/vendors" },
     { id: "comparison", label: "Product Comparison", icon: "🔄", route: "#/comparison" },
     { id: "tracker", label: "Implementation Tracker", icon: "✅", route: "#/tracker" },
+    { id: "ask", label: "Ask AI", icon: "💬", route: "#/ask" },
+    { id: "intel", label: "Risk & Intelligence", icon: "📉", route: "#/intel" },
+    { id: "quality", label: "Data Quality", icon: "🧹", route: "#/quality" },
     { id: "ai", label: "AI Categorization", icon: "🤖", route: "#/ai" },
     { id: "security", label: "Security & Access", icon: "🔐", route: "#/security" },
     { id: "admin", label: "Admin", icon: "⚙️", route: "#/admin" },
   ];
 
   // page id -> permission key (some nav items map to same permission group)
-  const PERM_KEY = { dashboard: "dashboard", categories: "categories", catalog: "catalog", savings: "savings", shops: "shops", vendors: "vendors", comparison: "comparison", tracker: "tracker", ai: "admin", security: "security", admin: "admin" };
+  const PERM_KEY = { dashboard: "dashboard", categories: "categories", catalog: "catalog", savings: "savings", shops: "shops", vendors: "vendors", comparison: "comparison", tracker: "tracker", ask: "catalog", intel: "savings", quality: "admin", ai: "admin", security: "security", admin: "admin" };
 
   function allowed(pageId) {
     const role = P.ROLES[State.role];

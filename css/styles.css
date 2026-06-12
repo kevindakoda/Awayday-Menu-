@@ -394,3 +394,9 @@ input, select, textarea { font-family: inherit; color: var(--ink); }
 .cat-tile-wrap [data-shop-dl] { background: rgba(255,255,255,0.92); }
 
 @media print { .sidebar, .topbar { display: none; } .main { margin-left: 0; } }
+
+/* ---- AI assistant pages (Ask AI, Risk & Intelligence, Data Quality) ---- */
+.field textarea, textarea#askInput { width: 100%; padding: 10px 12px; border: 1px solid var(--gray-200); border-radius: 8px; font: inherit; resize: vertical; background: #fff; }
+.ai-answer { background: var(--navy-50, #f3f6fb); border: 1px solid var(--gray-200); border-radius: 10px; padding: 14px 16px; line-height: 1.6; color: var(--ink, #1f2937); white-space: normal; }
+.ask-chip { font-weight: 500; }
+.ask-chip:hover { filter: brightness(0.95); }

@@ -85,6 +85,59 @@
     return res.text || "";
   }
 
+  // Ask a natural-language question grounded in portal data (KAI / RAI / DAI).
+  // `context` is a compact object/string of pre-aggregated data — never raw secrets.
+  async function ask(question, context) {
+    const res = await invoke("ask", { question, context });
+    return res.text || "";
+  }
+
+  // Build a bounded, model-friendly snapshot of the live catalog. Sends
+  // roll-ups (small) plus the highest-spend SKUs (capped) so answers stay
+  // grounded without shipping all rows. Returns a plain object.
+  function snapshot(opts) {
+    opts = opts || {};
+    const cap = opts.cap || 300;
+    const skus = P.SKUS || [];
+    const totals = P.aggregate(skus);
+
+    const rollup = (keyFn) => {
+      const m = {};
+      skus.forEach((s) => {
+        const k = keyFn(s) || "—";
+        const r = m[k] || (m[k] = { baseline: 0, savings: 0, skus: 0 });
+        r.baseline += s.currentAnnualSpend; r.savings += s.annualSavings; r.skus++;
+      });
+      return Object.keys(m).map((k) => ({
+        name: k, baselineSpend: Math.round(m[k].baseline),
+        savings: Math.round(m[k].savings), skuCount: m[k].skus,
+      })).sort((a, b) => b.baselineSpend - a.baselineSpend);
+    };
+
+    const top = skus.slice().sort((a, b) => b.currentAnnualSpend - a.currentAnnualSpend).slice(0, cap)
+      .map((s) => ({
+        sku: s.sku, name: s.productName, category: s.categoryGroup, sub: s.subcategory,
+        shop: s.shop, vendor: s.currentVendor, recVendor: s.recommendedVendor,
+        cur: s.currentUnitPrice, new: s.newUnitPrice, qty: s.annualQuantity,
+        annualSpend: s.currentAnnualSpend, annualSavings: s.annualSavings,
+      }));
+
+    return {
+      generatedAt: new Date().toISOString().slice(0, 10),
+      totals: {
+        baselineSpend: totals.baselineSpend, newSpend: totals.newSpend,
+        savingsOpportunity: totals.savingsOpportunity, savingsPercentage: totals.savingsPercentage,
+        skuCount: totals.skuCount, shopCount: (P.SHOPS || []).length,
+      },
+      byCategory: rollup((s) => s.categoryGroup),
+      byShop: rollup((s) => s.shop),
+      byRecommendedVendor: rollup((s) => s.recommendedVendor),
+      contracts: (P.CONTRACTS || []).map((c) => ({ vendor: c.vendorName, title: c.title, items: (c.items || []).length })),
+      topSkusBySpend: top,
+      note: skus.length > cap ? `topSkusBySpend lists the ${cap} highest-spend of ${skus.length} SKUs; roll-ups cover all rows.` : "topSkusBySpend covers all SKUs.",
+    };
+  }
+
   function toBase64(file) {
     return new Promise((resolve, reject) => {
       const r = new FileReader();
@@ -110,5 +163,5 @@
     });
   }
 
-  window.AI = { categorize, ocr, contractExtract, analyze, categorizeLocal, taxonomy, getProvider, setProvider, providers };
+  window.AI = { categorize, ocr, contractExtract, analyze, ask, snapshot, categorizeLocal, taxonomy, getProvider, setProvider, providers };
 })();
