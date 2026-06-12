@@ -1728,6 +1728,233 @@
     },
   };
 
+  /* ===================== ASK AI (KAI – Knowledge Assistant) ===================== */
+  const ASK_SUGGESTIONS = [
+    "Summarize my total savings opportunity for an executive.",
+    "Which 5 SKUs have the biggest annual savings?",
+    "Which shop has the most untapped savings, and why?",
+    "Where am I paying more than the recommended/contracted price?",
+    "Which categories should I prioritize first for quick wins?",
+    "Which vendors should I consolidate spend with?",
+  ];
+  const renderAnswer = (text) => `<div class="ai-answer">${esc(text).replace(/\n/g, "<br>")}</div>`;
+
+  PAGES.ask = {
+    title: "Ask AI",
+    crumb: "Ask AI",
+    render() {
+      if (!(P.SKUS || []).length) return `<div class="page-head"><h1>Ask AI</h1><p>Chat with your live procurement catalog.</p></div>${emptyState("Load brands and products first, then ask anything about your spend.")}`;
+      const chips = ASK_SUGGESTIONS.map((q) => `<button class="badge blue ask-chip" data-q="${esc(q)}" style="cursor:pointer;border:none">${esc(q)}</button>`).join(" ");
+      return `
+        <div class="page-head"><h1>🤖 Ask AI <span class="badge navy" style="vertical-align:middle">Knowledge Assistant</span></h1>
+          <p>Ask anything about your catalog, vendors, shops, spend and savings in plain English. Answers are grounded in your live data (${fmt.num((P.SKUS || []).length)} SKUs).</p></div>
+        <div class="card">
+          <div class="field"><label>Your question</label>
+            <textarea id="askInput" rows="3" placeholder="e.g. Which shops overpay for bath towels, and how much could I save by standardizing?"></textarea></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" id="askRun">Ask</button>
+            <span class="cell-sub">Powered by your configured AI provider · grounded in portal data</span>
+          </div>
+          <div style="margin-top:12px"><div class="cell-sub" style="margin-bottom:6px">Try one of these:</div><div class="tag-cats">${chips}</div></div>
+          <div id="askOut" style="margin-top:16px"></div>
+        </div>`;
+    },
+    mount() {
+      const input = document.getElementById("askInput");
+      const out = document.getElementById("askOut");
+      if (!input || !out) return;
+      const run = async () => {
+        const q = (input.value || "").trim();
+        if (!q) { input.focus(); return; }
+        out.innerHTML = `<div class="notice">⏳ Thinking — reading your catalog…</div>`;
+        try {
+          const text = await window.AI.ask(q, window.AI.snapshot());
+          out.innerHTML = renderAnswer(text || "No answer was returned.");
+        } catch (e) {
+          out.innerHTML = `<div class="notice" style="background:var(--amber-bg);border-color:#f3d9a8;color:var(--amber)">⚠️ ${esc(e.message || String(e))}</div>`;
+        }
+      };
+      document.getElementById("askRun").addEventListener("click", run);
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run(); });
+      document.querySelectorAll(".ask-chip").forEach((b) => b.addEventListener("click", () => { input.value = b.getAttribute("data-q"); run(); }));
+    },
+  };
+
+  /* ============== RISK & INTELLIGENCE (RAI + SPAI) ============== */
+  function intelMetrics() {
+    const skus = P.SKUS || [];
+    const totals = P.aggregate(skus);
+    const share = (rows) => {
+      const m = {};
+      rows.forEach((s) => { const k = s.shop || "—"; m[k] = (m[k] || 0) + s.currentAnnualSpend; });
+      return m;
+    };
+    const byShop = Object.entries(share(skus)).map(([name, spend]) => ({ name, spend })).sort((a, b) => b.spend - a.spend);
+    const catMap = {};
+    skus.forEach((s) => { const k = s.categoryGroup || "Other"; catMap[k] = (catMap[k] || 0) + s.currentAnnualSpend; });
+    const byCat = Object.entries(catMap).map(([name, spend]) => ({ name, spend })).sort((a, b) => b.spend - a.spend);
+    const totalSpend = totals.baselineSpend || 1;
+    const topN = (arr, n) => arr.slice(0, n).reduce((a, x) => a + x.spend, 0);
+    const dq = P.dataQuality();
+    const atRisk = skus.filter((s) => s.annualSavings > 0 && (!s.implementationStatus || s.implementationStatus === "Not Reviewed"));
+    const atRiskSavings = Math.round(atRisk.reduce((a, s) => a + s.annualSavings, 0));
+    const negImpact = Math.round(dq.negative.reduce((a, s) => a + (s.newUnitPrice - s.currentUnitPrice) * (s.annualQuantity || 0), 0));
+    return {
+      totals, byShop, byCat, totalSpend, dq, atRisk, atRiskSavings, negImpact,
+      top3ShopShare: topN(byShop, 3) / totalSpend * 100,
+      top3CatShare: topN(byCat, 3) / totalSpend * 100,
+    };
+  }
+
+  PAGES.intel = {
+    title: "Risk & Intelligence",
+    crumb: "Risk & Intelligence",
+    render() {
+      if (!(P.SKUS || []).length) return `<div class="page-head"><h1>Risk &amp; Intelligence</h1></div>${emptyState()}`;
+      const m = intelMetrics();
+      const riskOf = (pct) => pct >= 60 ? "High" : pct >= 35 ? "Medium" : "Low";
+      const maxShop = mx(m.byShop.map((x) => x.spend));
+      const maxCat = mx(m.byCat.map((x) => x.spend));
+      const shopBars = m.byShop.slice(0, 8).map((x) => U.hbar(x.name, x.spend, maxShop, fmt.moneyShort(x.spend) + ` · ${(x.spend / m.totalSpend * 100).toFixed(0)}%`)).join("");
+      const catBars = m.byCat.slice(0, 8).map((x) => U.hbar(x.name, x.spend, maxCat, fmt.moneyShort(x.spend) + ` · ${(x.spend / m.totalSpend * 100).toFixed(0)}%`)).join("");
+      const negRows = m.dq.negative.slice(0, 10).map((s) => `<tr>
+        <td class="cell-strong">${esc(s.productName)}</td><td>${esc(s.shop)}</td>
+        <td class="num">${fmt.money(s.currentUnitPrice, 2)}</td><td class="num text-red">${fmt.money(s.newUnitPrice, 2)}</td>
+        <td class="num text-red">${fmt.money((s.newUnitPrice - s.currentUnitPrice) * (s.annualQuantity || 0))}</td></tr>`).join("");
+      const outRows = m.dq.outliers.slice(0, 10).map((o) => `<tr>
+        <td class="cell-strong">${esc(o.sku.productName)}</td><td>${esc(o.sku.shop)}</td>
+        <td class="num">${fmt.money(o.sku.currentUnitPrice, 2)}</td><td class="num">${fmt.money(o.median, 2)}</td>
+        <td class="num text-amber">${(o.sku.currentUnitPrice / o.median).toFixed(1)}×</td></tr>`).join("");
+      return `
+        <div class="page-head"><h1>📉 Risk &amp; Intelligence <span class="badge navy" style="vertical-align:middle">SPAI · RAI</span></h1>
+          <p>Spend concentration, savings at risk, and pricing anomalies across ${fmt.num(m.totals.skuCount)} SKUs and ${fmt.num(m.byShop.length)} shops.</p></div>
+        <div class="grid cols-4" style="margin-bottom:16px">
+          ${U.statCard({ label: "Total spend analyzed", value: fmt.moneyShort(m.totals.baselineSpend), accent: "navy", icon: "💰" })}
+          ${U.statCard({ label: "Savings at risk (unreviewed)", value: fmt.moneyShort(m.atRiskSavings), delta: m.atRisk.length + " SKUs not reviewed", deltaClass: "text-amber", accent: "amber", icon: "⏳" })}
+          ${U.statCard({ label: "Negative-savings exposure", value: fmt.moneyShort(m.negImpact), delta: m.dq.counts.negative + " rows cost more", deltaClass: m.dq.counts.negative ? "text-red" : "text-green", accent: "red", icon: "⚠️" })}
+          ${U.statCard({ label: "Top-3 shop concentration", value: m.top3ShopShare.toFixed(0) + "%", delta: riskOf(m.top3ShopShare) + " concentration", deltaClass: "text-muted", accent: "blue", icon: "🏬" })}
+        </div>
+        <div class="grid cols-2" style="margin-bottom:16px">
+          <div class="card"><h3 class="card-title">🏬 Spend concentration by shop ${U.riskBadge(riskOf(m.top3ShopShare))}</h3>${shopBars}</div>
+          <div class="card"><h3 class="card-title">🗂️ Spend concentration by category ${U.riskBadge(riskOf(m.top3CatShare))}</h3>${catBars}</div>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <h3 class="card-title" style="margin:0">🧠 AI risk &amp; spend briefing</h3>
+            <button class="btn btn-primary btn-sm" id="intelBrief">Generate briefing</button>
+          </div>
+          <div id="intelOut" style="margin-top:12px"><div class="cell-sub">Click “Generate briefing” for an executive-ready narrative of your concentration risk, savings at risk, and recommended next move.</div></div>
+        </div>
+        ${m.dq.counts.negative ? `<div class="card" style="margin-bottom:16px"><h3 class="card-title">⚠️ Rows where the new price is higher (negative savings)</h3>
+          <div class="table-wrap" style="border:none"><table class="data" style="min-width:680px"><thead><tr><th>Product</th><th>Shop</th><th class="num">Current</th><th class="num">New</th><th class="num">Annual impact</th></tr></thead><tbody>${negRows}</tbody></table></div></div>` : ""}
+        ${m.dq.counts.outliers ? `<div class="card"><h3 class="card-title">📈 Price outliers (vs. subcategory median)</h3>
+          <div class="table-wrap" style="border:none"><table class="data" style="min-width:620px"><thead><tr><th>Product</th><th>Shop</th><th class="num">Price</th><th class="num">Median</th><th class="num">Ratio</th></tr></thead><tbody>${outRows}</tbody></table></div></div>` : ""}`;
+    },
+    mount() {
+      const btn = document.getElementById("intelBrief");
+      if (!btn) return;
+      btn.addEventListener("click", async () => {
+        const out = document.getElementById("intelOut");
+        out.innerHTML = `<div class="notice">⏳ Analyzing concentration, risk and savings…</div>`;
+        const q = "Act as a procurement risk & spend analyst. Using the portal data, write an executive briefing (about 160 words) covering: (1) where spend is most concentrated by shop and category and whether that is a risk, (2) the dollar value of savings sitting unreviewed, (3) any rows where the negotiated price is higher than current, and (4) ONE concrete recommended next action this week.";
+        try {
+          const text = await window.AI.ask(q, window.AI.snapshot());
+          out.innerHTML = renderAnswer(text || "No briefing returned.");
+        } catch (e) {
+          out.innerHTML = `<div class="notice" style="background:var(--amber-bg);border-color:#f3d9a8;color:var(--amber)">⚠️ ${esc(e.message || String(e))}</div>`;
+        }
+      });
+    },
+  };
+
+  /* ============== DATA QUALITY & AUDIT (DAI) ============== */
+  function qualityMetrics() {
+    const skus = P.SKUS || [];
+    const dq = P.dataQuality();
+    // Cross-shop price inconsistency: same vendor SKU code bought by 2+ shops
+    // at different prices — a consolidation/standardization opportunity.
+    const byCode = {};
+    skus.forEach((s) => { if (s.sku) (byCode[s.sku] = byCode[s.sku] || []).push(s); });
+    const inconsistent = [];
+    Object.keys(byCode).forEach((code) => {
+      const rows = byCode[code];
+      const shops = new Set(rows.map((r) => r.shop));
+      const prices = rows.map((r) => r.currentUnitPrice).filter((p) => p > 0);
+      if (shops.size < 2 || prices.length < 2) return;
+      const min = Math.min(...prices), max = Math.max(...prices);
+      if (max - min < 0.01) return;
+      const potential = Math.round(rows.reduce((a, r) => a + Math.max(0, (r.currentUnitPrice - min)) * (r.annualQuantity || 0), 0));
+      inconsistent.push({ code, name: rows[0].productName, shops: shops.size, min, max, spread: max - min, potential });
+    });
+    inconsistent.sort((a, b) => b.potential - a.potential);
+    // True duplicates: same shop + same code (or name) appearing more than once.
+    const dupTally = {};
+    skus.forEach((s) => { const k = (s.shop || "") + "∥" + (s.sku || s.productName || ""); dupTally[k] = (dupTally[k] || 0) + 1; });
+    const duplicates = Object.keys(dupTally).filter((k) => dupTally[k] > 1).length;
+    const missingCat = skus.filter((s) => !s.category || s.category === "Other").length;
+    const consolidationTotal = Math.round(inconsistent.reduce((a, x) => a + x.potential, 0));
+    return { dq, inconsistent, duplicates, missingCat, consolidationTotal, total: skus.length };
+  }
+
+  PAGES.quality = {
+    title: "Data Quality",
+    crumb: "Data Quality",
+    render() {
+      if (!(P.SKUS || []).length) return `<div class="page-head"><h1>Data Quality &amp; Audit</h1></div>${emptyState()}`;
+      const m = qualityMetrics();
+      const c = m.dq.counts;
+      const issues = c.negative + c.missingPrice + c.missingQty + c.outliers + m.duplicates + m.missingCat + m.inconsistent.length;
+      const incRows = m.inconsistent.slice(0, 15).map((x) => `<tr>
+        <td class="cell-strong">${esc(x.name)}</td><td class="mono">${esc(x.code)}</td><td class="num">${x.shops}</td>
+        <td class="num">${fmt.money(x.min, 2)}</td><td class="num">${fmt.money(x.max, 2)}</td>
+        <td class="num text-green">${fmt.money(x.potential)}</td></tr>`).join("");
+      return `
+        <div class="page-head"><h1>🧹 Data Quality &amp; Audit <span class="badge navy" style="vertical-align:middle">DAI</span></h1>
+          <p>Trustworthy data for accurate reporting. Scanned ${fmt.num(m.total)} SKUs for duplicates, gaps, outliers, and cross-shop price inconsistencies.</p></div>
+        <div class="grid cols-4" style="margin-bottom:16px">
+          ${U.statCard({ label: "Total issues found", value: fmt.num(issues), accent: "amber", icon: "🔎" })}
+          ${U.statCard({ label: "Consolidation upside", value: fmt.moneyShort(m.consolidationTotal), delta: m.inconsistent.length + " SKUs priced differently across shops", deltaClass: "text-green", accent: "green", icon: "🔗" })}
+          ${U.statCard({ label: "Missing price / qty", value: fmt.num(c.missingPrice) + " / " + fmt.num(c.missingQty), accent: "blue", icon: "❓" })}
+          ${U.statCard({ label: "Duplicates / outliers", value: fmt.num(m.duplicates) + " / " + fmt.num(c.outliers), accent: "navy", icon: "📑" })}
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <h3 class="card-title">🔗 Same SKU, different price across shops — standardization opportunity</h3>
+          <p class="cell-sub" style="margin-top:-4px">If every shop matched the lowest price already paid for the same item, the annualized upside is <b class="text-green">${fmt.money(m.consolidationTotal)}</b>.</p>
+          ${m.inconsistent.length ? `<div class="table-wrap" style="border:none"><table class="data" style="min-width:680px"><thead><tr><th>Product</th><th>SKU</th><th class="num">Shops</th><th class="num">Min</th><th class="num">Max</th><th class="num">Upside</th></tr></thead><tbody>${incRows}</tbody></table></div>` : `<div class="cell-sub">No cross-shop price gaps detected.</div>`}
+        </div>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <h3 class="card-title" style="margin:0">🧠 AI cleanup summary</h3>
+            <button class="btn btn-primary btn-sm" id="qualBrief">Summarize findings</button>
+          </div>
+          <div id="qualOut" style="margin-top:12px"><div class="cell-sub">Generate a plain-English summary of the data issues and a prioritized cleanup plan.</div></div>
+        </div>`;
+    },
+    mount() {
+      const btn = document.getElementById("qualBrief");
+      if (!btn) return;
+      btn.addEventListener("click", async () => {
+        const m = qualityMetrics();
+        const out = document.getElementById("qualOut");
+        out.innerHTML = `<div class="notice">⏳ Reviewing data quality…</div>`;
+        const ctx = {
+          totalSkus: m.total,
+          counts: { ...m.dq.counts, duplicates: m.duplicates, missingCategory: m.missingCat, crossShopPriceGaps: m.inconsistent.length },
+          consolidationUpside: m.consolidationTotal,
+          topPriceInconsistencies: m.inconsistent.slice(0, 15),
+          sampleNegative: m.dq.negative.slice(0, 8).map((s) => ({ name: s.productName, shop: s.shop, cur: s.currentUnitPrice, new: s.newUnitPrice })),
+        };
+        const q = "Act as a procurement data-quality analyst. Summarize the data issues in this audit in about 140 words, then give a prioritized 3-step cleanup plan. Call out the dollar consolidation upside from standardizing the same SKU's price across shops.";
+        try {
+          const text = await window.AI.ask(q, ctx);
+          out.innerHTML = renderAnswer(text || "No summary returned.");
+        } catch (e) {
+          out.innerHTML = `<div class="notice" style="background:var(--amber-bg);border-color:#f3d9a8;color:var(--amber)">⚠️ ${esc(e.message || String(e))}</div>`;
+        }
+      });
+    },
+  };
+
   // expose helpers used by app shell
   window.PAGE_HELPERS = { State };
 })();

@@ -2,7 +2,7 @@
 // Calls Claude (Anthropic) or Gemini (Google) server-side so the API keys
 // never ship in the static front-end. Requires a valid Supabase JWT
 // (verify_jwt = true) and the ANTHROPIC_API_KEY and/or GEMINI_API_KEY secrets.
-// Actions: categorize | ocr | contract | analyze | providers.
+// Actions: categorize | ocr | contract | analyze | ask | providers.
 // The request may include `provider`: "claude" (default) or "gemini".
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
@@ -369,6 +369,39 @@ async function analyze(body: any, provider: string) {
   return { text: claudeText(data), provider };
 }
 
+/* ------------------------------- ask ------------------------------ */
+// Powers the Knowledge Assistant (KAI), the Risk & Spend briefing (RAI/SPAI),
+// and the Data-Quality summary (DAI). The caller supplies a focused `context`
+// (pre-aggregated portal data, never raw secrets) plus a natural-language
+// `question`; the model answers grounded ONLY in that context.
+const ASK_SYS =
+  "You are an embedded procurement analyst for a hotel-supply cost-savings portal. " +
+  "Answer the user's question using ONLY the PORTAL DATA provided in the prompt (catalog SKUs, vendors, shops, spend/savings roll-ups, data-quality findings, and any contracts). " +
+  "Be concise, specific, and decision-oriented: cite exact figures, SKU names, vendors, and shop names straight from the data, and quantify impact in dollars where possible. " +
+  "If the data does not contain the answer, say so plainly rather than guessing. " +
+  "Format as plain text with short paragraphs or simple hyphen bullet lists; no markdown headers. Money like $12,345.";
+
+// deno-lint-ignore no-explicit-any
+async function ask(body: any, provider: string) {
+  const ctx = typeof body.context === "string" ? body.context : JSON.stringify(body.context ?? {});
+  const question = String(body.question || "").slice(0, 4000);
+  const prompt = "PORTAL DATA (JSON):\n" + ctx + "\n\n----\nQUESTION: " + question;
+  if (provider === "gemini") {
+    const data = await callGemini(GEMINI_SMART, {
+      systemInstruction: { parts: [{ text: ASK_SYS }] },
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+    });
+    return { text: geminiText(data), provider };
+  }
+  const data = await callClaude({
+    model: CLAUDE_SMART,
+    max_tokens: 1500,
+    system: ASK_SYS,
+    messages: [{ role: "user", content: prompt }],
+  });
+  return { text: claudeText(data), provider };
+}
+
 /* ------------------------------ serve ----------------------------- */
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -396,6 +429,7 @@ Deno.serve(async (req: Request) => {
     if (body.action === "ocr") return json(await ocr(body, provider));
     if (body.action === "contract") return json(await contract(body, provider));
     if (body.action === "analyze") return json(await analyze(body, provider));
+    if (body.action === "ask") return json(await ask(body, provider));
     return json({ error: "Unknown action: " + body.action }, 400);
   } catch (e) {
     return json({ error: String((e && (e as Error).message) || e) }, 500);
