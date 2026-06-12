@@ -2266,6 +2266,80 @@
     },
   };
 
+  /* ============== MARKET INSIGHTS (weekly, web-sourced) ============== */
+  // Render the briefing text with simple emphasis on the CAPS section headers.
+  function renderBriefing(text) {
+    const lines = esc(text).split("\n");
+    return lines.map((ln) => {
+      const t = ln.trim();
+      if (/^(EXECUTIVE SUMMARY|\d+\.\s*)?(LINENS|DISPOSABLES|TARIFFS|TARIFFS &amp; TRADE|TECHNOLOGY|EXECUTIVE SUMMARY)\b/.test(t) && t === t.toUpperCase() && t.length < 60) {
+        return `<div style="font-weight:700;color:var(--navy,#1e3a5f);margin:14px 0 4px">${t}</div>`;
+      }
+      if (/^[-•]/.test(t)) return `<div style="margin:2px 0 2px 10px">${t}</div>`;
+      return ln ? `<div style="margin:4px 0">${ln}</div>` : "<div style='height:6px'></div>";
+    }).join("");
+  }
+
+  PAGES.market = {
+    title: "Market Insights",
+    crumb: "Market Insights",
+    render() {
+      const canEdit = State.role === "Procurement Admin";
+      const list = P.MARKET || [];
+      const latest = list[0];
+      const head = `<div class="page-head"><h1>🌐 Market Insights <span class="badge navy" style="vertical-align:middle">Weekly</span></h1>
+        <p>Web-sourced market shifts in <b>linens, disposables, tariffs, and technology</b> — so buying decisions stay ahead of cost moves.</p></div>`;
+      const genBtn = canEdit
+        ? `<button class="btn btn-primary btn-sm" id="mktGen">🔄 Generate this week's briefing</button>`
+        : `<span class="cell-sub">A Procurement Admin refreshes this weekly.</span>`;
+      const controls = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">${genBtn}<span class="cell-sub" id="mktMsg"></span></div>`;
+
+      if (!latest) {
+        return `${head}${controls}<div class="card"><div class="cell-sub">No briefing yet. ${canEdit ? "Click “Generate this week’s briefing” — Claude will search the web and compile current market data (takes ~30–60s)." : "Check back once an admin generates the first one."}</div></div><div id="mktOut"></div>`;
+      }
+
+      const srcs = (latest.sources || []).slice(0, 12).map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener" class="badge blue" style="text-decoration:none">${esc((s.title || s.url).slice(0, 48))}</a>`).join(" ");
+      const history = list.slice(1, 8).map((m) => `<button class="badge navy mkt-hist" data-id="${esc(m.id)}" style="cursor:pointer;border:none">${esc(m.weekOf)}</button>`).join(" ");
+      return `${head}${controls}
+        <div class="card" id="mktOut">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <h3 class="card-title" style="margin:0">Week of ${esc(latest.weekOf)}</h3>
+            <span class="cell-sub">Generated ${esc(String(latest.asOf).slice(0, 10))}</span>
+          </div>
+          <div style="margin-top:10px;line-height:1.55">${renderBriefing(latest.text)}</div>
+          ${srcs ? `<div style="margin-top:14px"><div class="cell-sub" style="margin-bottom:6px">Sources</div><div class="tag-cats">${srcs}</div></div>` : ""}
+        </div>
+        ${history ? `<div class="card" style="margin-top:14px"><h3 class="card-title">📚 Past briefings</h3><div class="tag-cats">${history}</div></div>` : ""}`;
+    },
+    mount() {
+      const msg = document.getElementById("mktMsg");
+      const gen = document.getElementById("mktGen");
+      if (gen) gen.addEventListener("click", async () => {
+        gen.disabled = true;
+        msg.textContent = "🌐 Searching the web and compiling market data… (this can take ~30–60s)";
+        try {
+          const brief = await window.AI.market();
+          if (!brief.text) throw new Error("No briefing was returned.");
+          if (window.Store && window.Store.available()) await window.Store.saveMarket(brief);
+          window.App.renderCurrent();
+        } catch (e) {
+          msg.textContent = "⚠️ " + (e.message || e);
+          gen.disabled = false;
+        }
+      });
+      document.querySelectorAll(".mkt-hist").forEach((b) => b.addEventListener("click", () => {
+        const m = (P.MARKET || []).find((x) => x.id === b.getAttribute("data-id"));
+        if (!m) return;
+        const out = document.getElementById("mktOut");
+        const srcs = (m.sources || []).slice(0, 12).map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener" class="badge blue" style="text-decoration:none">${esc((s.title || s.url).slice(0, 48))}</a>`).join(" ");
+        out.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h3 class="card-title" style="margin:0">Week of ${esc(m.weekOf)}</h3><span class="cell-sub">Generated ${esc(String(m.asOf).slice(0, 10))}</span></div>
+          <div style="margin-top:10px;line-height:1.55">${renderBriefing(m.text)}</div>
+          ${srcs ? `<div style="margin-top:14px"><div class="cell-sub" style="margin-bottom:6px">Sources</div><div class="tag-cats">${srcs}</div></div>` : ""}`;
+        window.scrollTo(0, 0);
+      }));
+    },
+  };
+
   // expose helpers used by app shell
   window.PAGE_HELPERS = { State };
 })();

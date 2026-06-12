@@ -1032,6 +1032,16 @@
   function apClear() { AP.length = 0; }
   function apShops() { return Array.from(new Set(AP.map((r) => r.shop).filter(Boolean))).sort(); }
 
+  // Weekly market-intelligence briefings (populated from the database).
+  const MARKET = [];
+  // Monday (ISO week start) of the date as YYYY-MM-DD — the briefing's week key.
+  function weekOf(d) {
+    const dt = d ? new Date(d) : new Date();
+    const day = (dt.getDay() + 6) % 7; // 0 = Monday
+    dt.setDate(dt.getDate() - day);
+    return dt.toISOString().slice(0, 10);
+  }
+
   // Aggregate AP into calendar-month seasonality (Jan–Dec across all years) and
   // a chronological trend, optionally filtered to one shop.
   function apSummary(shop) {
@@ -1090,6 +1100,8 @@
     apSummary,
     apShops,
     apClear,
+    MARKET,
+    weekOf,
     importContract,
     deleteContract,
     contractsByVendor,
