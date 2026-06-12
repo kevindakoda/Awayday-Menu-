@@ -96,14 +96,28 @@
     items: Array.isArray(r.items) ? r.items : [],
   });
 
+  const apToRow = (a) => ({
+    id: a.id,
+    shop: a.shop || "", shop_code: a.shopCode || "", region: a.region || "",
+    category: a.category || "Other", subcategory: a.subcategory || "",
+    vendor: a.vendor || "", invoice_date: a.date || null,
+    amount: +a.amount || 0, quantity: +a.quantity || 0, description: a.description || "",
+  });
+  const rowToAp = (r) => P.makeApRow({
+    id: r.id, date: r.invoice_date, shop: r.shop, shopCode: r.shop_code, region: r.region,
+    category: r.category, subcategory: r.subcategory, vendor: r.vendor,
+    amount: r.amount, quantity: r.quantity, description: r.description,
+  });
+
   /* ----------------------------- reads ------------------------------- */
   async function loadAll() {
     const c = client();
     if (!c) return { loaded: false };
-    const [brandsRes, skusRes, contractsRes] = await Promise.all([
+    const [brandsRes, skusRes, contractsRes, apRes] = await Promise.all([
       c.from("procurement_brands").select("*"),
       c.from("procurement_skus").select("*"),
       c.from("procurement_contracts").select("*"),
+      c.from("procurement_ap_spend").select("*"),
     ]);
     if (brandsRes.error) throw brandsRes.error;
     if (skusRes.error) throw skusRes.error;
@@ -116,7 +130,12 @@
       P.CONTRACTS.length = 0;
       if (!contractsRes.error) (contractsRes.data || []).forEach((r) => P.CONTRACTS.push(rowToContract(r)));
     }
-    return { loaded: true, brands: P.SHOPS.length, skus: P.SKUS.length };
+    // AP spend is optional too (older projects may not have the table yet).
+    if (P.AP) {
+      P.apClear();
+      if (!apRes.error) (apRes.data || []).forEach((r) => P.AP.push(rowToAp(r)));
+    }
+    return { loaded: true, brands: P.SHOPS.length, skus: P.SKUS.length, ap: (P.AP || []).length };
   }
 
   /* ----------------------------- writes ------------------------------ */
@@ -171,5 +190,14 @@
     if (res.error) throw res.error;
   }
 
-  window.Store = { available, loadAll, pushAll, upsertSku, deleteSku, upsertContract, deleteContract };
+  // Full replace: mirror the in-memory AP spend into the database.
+  async function pushAp() {
+    const c = client();
+    if (!c) return;
+    const del = await c.from("procurement_ap_spend").delete().not("id", "is", null);
+    if (del.error) throw del.error;
+    if (P.AP && P.AP.length) await insertChunked("procurement_ap_spend", P.AP.map(apToRow));
+  }
+
+  window.Store = { available, loadAll, pushAll, pushAp, upsertSku, deleteSku, upsertContract, deleteContract };
 })();

@@ -2079,6 +2079,163 @@
     },
   };
 
+  /* ============== BUYING PATTERNS (AP spend seasonality) ============== */
+  const AP_HELP = `<div class="notice" style="margin-top:14px">📄 Upload a CSV or Excel export of your AP spend. Columns (header row required): <b>Date, Shop, Category, Subcategory, Vendor, Amount, Quantity, Description</b>. Only Date, Category and Amount are essential — Shop lets you filter per property, and Category drives the seasonality breakdown.</div>`;
+
+  function apUploadControls(canEdit, hasData) {
+    if (!canEdit) return hasData ? "" : `<div class="cell-sub" style="margin-top:10px">Ask a Procurement Admin to upload AP spend data.</div>`;
+    return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px">
+        <input type="file" id="apFile" accept=".csv,.xlsx,.xls" style="display:none">
+        <button class="btn btn-primary btn-sm" id="apUploadBtn">⬆ Upload AP spend</button>
+        <button class="btn btn-outline btn-sm" id="apTemplate">⬇ CSV template</button>
+        ${hasData ? `<button class="btn btn-outline btn-sm" id="apClear">🗑 Clear AP data</button>` : ""}
+        <span class="cell-sub" id="apMsg"></span>
+      </div>`;
+  }
+
+  PAGES.patterns = {
+    title: "Buying Patterns",
+    crumb: "Buying Patterns",
+    render() {
+      const canEdit = State.role === "Procurement Admin";
+      const hasData = (P.AP || []).length > 0;
+      const head = `<div class="page-head"><h1>📅 Buying Patterns <span class="badge navy" style="vertical-align:middle">Seasonality</span></h1>
+        <p>See <b>when</b> each category is purchased across the year — upload AP spend to reveal demand timing per shop.</p></div>`;
+      if (!hasData) {
+        return `${head}<div class="card"><h3 class="card-title">Upload accounts-payable spend</h3>
+          <p class="text-muted" style="max-width:560px">Once you upload dated purchase lines, this page shows a month-by-month heatmap of buying activity per category and the peak buying month for linens, disposables, supplies, and more.</p>
+          ${apUploadControls(canEdit, false)}${AP_HELP}</div>`;
+      }
+
+      const shops = P.apShops();
+      const sel = State.patternsShop && (shops.includes(State.patternsShop) || State.patternsShop === "All") ? State.patternsShop : "All";
+      const m = P.apSummary(sel);
+      const shopOptions = [`<option value="All" ${sel === "All" ? "selected" : ""}>All shops</option>`]
+        .concat(shops.map((s) => `<option value="${esc(s)}" ${s === sel ? "selected" : ""}>${esc(s)}</option>`)).join("");
+
+      // Heatmap colour scale across category × month.
+      const maxCell = mx(m.categories.flatMap((c) => c.byCalMonth)) || 1;
+      const cell = (v, isPeak) => {
+        const a = v > 0 ? 0.12 + 0.83 * (v / maxCell) : 0;
+        const txt = v > 0 ? (a > 0.55 ? "#fff" : "var(--ink,#1f2937)") : "var(--gray-400,#9aa6b2)";
+        return `<td style="text-align:center;padding:6px 4px;background:rgba(30,58,95,${a.toFixed(3)});color:${txt};${isPeak ? "outline:2px solid var(--amber,#d97706);outline-offset:-2px;font-weight:700" : ""}" title="${v > 0 ? fmt.money(v) : "—"}">${v > 0 ? fmt.moneyShort(v) : "·"}</td>`;
+      };
+      const monthHead = `<th></th>${P.MONTHS.map((mo, i) => `<th class="num" style="text-align:center;${i === m.peakMonth ? "color:var(--amber,#d97706)" : ""}">${mo}</th>`).join("")}`;
+      const heatRows = m.categories.map((c) => `<tr>
+        <td class="cell-strong" style="white-space:nowrap">${esc(c.group)} <span class="cell-sub">${fmt.moneyShort(c.total)}</span></td>
+        ${c.byCalMonth.map((v, i) => cell(v, i === c.peakMonth && v > 0)).join("")}
+      </tr>`).join("");
+
+      const peakList = m.categories.map((c) => `<div class="bar-row">
+        <div class="bl">${esc(c.group)}</div>
+        <div class="hbar"><span style="width:${Math.max(3, (c.total / (m.categories[0].total || 1)) * 100)}%"></span></div>
+        <div class="bv">${c.peakMonth >= 0 ? `<b>${P.MONTHS[c.peakMonth]}</b> · ${fmt.moneyShort(c.peakValue)}` : "—"}</div>
+      </div>`).join("");
+
+      const range = m.minDate && m.maxDate ? `${m.minDate} → ${m.maxDate}` : "—";
+      return `${head}
+        <div class="card" style="margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+            <div class="field" style="margin:0;min-width:220px"><label>Shop</label>
+              <select id="apShopSel" class="approve-select" style="max-width:none;width:100%">${shopOptions}</select></div>
+            <div class="cell-sub">${fmt.num(m.rows)} purchase lines · ${esc(range)}</div>
+          </div>
+          ${apUploadControls(canEdit, true)}
+        </div>
+        <div class="grid cols-4" style="margin-bottom:16px">
+          ${U.statCard({ label: "AP spend analyzed", value: fmt.moneyShort(m.total), accent: "navy", icon: "💵" })}
+          ${U.statCard({ label: "Peak buying month", value: m.peakMonth >= 0 ? P.MONTHS[m.peakMonth] : "—", delta: m.peakMonth >= 0 ? fmt.moneyShort(m.byCalMonth[m.peakMonth]) + " that month" : "", deltaClass: "text-muted", accent: "amber", icon: "📈" })}
+          ${U.statCard({ label: "Busiest category", value: m.categories[0] ? m.categories[0].group : "—", delta: m.categories[0] ? fmt.moneyShort(m.categories[0].total) : "", deltaClass: "text-muted", accent: "blue", icon: "🗂️" })}
+          ${U.statCard({ label: "Shops covered", value: fmt.num(shops.length), accent: "green", icon: "🏬" })}
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <h3 class="card-title">🔥 When is each category bought? <span class="cell-sub">(spend by calendar month — darker = more)</span></h3>
+          <div class="table-wrap" style="border:none"><table class="data" style="min-width:760px"><thead><tr>${monthHead}</tr></thead><tbody>${heatRows}</tbody></table></div>
+        </div>
+        <div class="grid cols-2" style="margin-bottom:16px">
+          <div class="card"><h3 class="card-title">🏆 Peak buying month by category</h3>${peakList}</div>
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+              <h3 class="card-title" style="margin:0">🧠 AI buying-pattern insight</h3>
+              <button class="btn btn-primary btn-sm" id="apBrief">Analyze timing</button>
+            </div>
+            <div id="apOut" style="margin-top:12px"><div class="cell-sub">Get advice on when to stock up, negotiate, or consolidate orders based on the seasonality above.</div></div>
+          </div>
+        </div>`;
+    },
+    mount() {
+      const rerender = () => window.App.renderCurrent();
+      const sel = document.getElementById("apShopSel");
+      if (sel) sel.addEventListener("change", () => { State.patternsShop = sel.value; rerender(); });
+
+      const tpl = document.getElementById("apTemplate");
+      if (tpl) tpl.addEventListener("click", () => {
+        const sample = "Date,Shop,Category,Subcategory,Vendor,Amount,Quantity,Description\n2026-03-12,Avada Properties,Linens,Bath Towels,Calderon Textiles,1840.50,600,Bath towels 27x54\n2026-07-08,Avada Properties,Disposables,Toiletries,A1 American,920.00,1200,Shampoo 1oz";
+        const blob = new Blob([sample], { type: "text/csv" });
+        const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "ap_spend_template.csv"; a.click();
+      });
+
+      const btn = document.getElementById("apUploadBtn");
+      const file = document.getElementById("apFile");
+      const msg = document.getElementById("apMsg");
+      if (btn && file) {
+        btn.addEventListener("click", () => file.click());
+        file.addEventListener("change", async () => {
+          const f = file.files && file.files[0];
+          if (!f) return;
+          msg.textContent = "Reading " + f.name + "…";
+          try {
+            let matrix;
+            const name = f.name.toLowerCase();
+            if (name.endsWith(".csv") || f.type === "text/csv") {
+              matrix = P.parseCsv(await f.text());
+            } else {
+              const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
+              matrix = [];
+              wb.SheetNames.forEach((sn, i) => {
+                const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: false, defval: "" });
+                matrix = i === 0 ? rows : matrix.concat(rows.slice(1));
+              });
+            }
+            const { added } = P.ingestApRows(matrix);
+            if (!added) { msg.textContent = "⚠️ No dated rows found — check the Date/Amount columns."; return; }
+            msg.textContent = `Saving ${added} lines…`;
+            if (window.Store && window.Store.available()) await window.Store.pushAp();
+            window.App.renderCurrent();
+          } catch (e) {
+            msg.textContent = "⚠️ " + (e.message || e);
+          }
+        });
+      }
+
+      const clr = document.getElementById("apClear");
+      if (clr) clr.addEventListener("click", async () => {
+        if (!confirm("Remove ALL AP spend data (including from the database)?")) return;
+        P.apClear();
+        try { if (window.Store && window.Store.available()) await window.Store.pushAp(); } catch (_) { /* ignore */ }
+        window.App.renderCurrent();
+      });
+
+      const brief = document.getElementById("apBrief");
+      if (brief) brief.addEventListener("click", async () => {
+        const m = P.apSummary(State.patternsShop || "All");
+        const out = document.getElementById("apOut");
+        out.innerHTML = `<div class="notice">⏳ Analyzing buying patterns…</div>`;
+        const ctx = {
+          shop: State.patternsShop || "All shops", months: P.MONTHS,
+          totalSpend: m.total, peakMonthIndex: m.peakMonth, spendByCalendarMonth: m.byCalMonth,
+          categories: m.categories.map((c) => ({ category: c.group, total: c.total, peakMonth: c.peakMonth >= 0 ? P.MONTHS[c.peakMonth] : null, byCalendarMonth: c.byCalMonth })),
+        };
+        const q = "Using this accounts-payable seasonality data, tell the shop WHEN they buy each category most and give 3 concrete, dated recommendations: when to stock up ahead of peaks, when to negotiate annual contracts, and where order consolidation could cut cost. About 150 words.";
+        try {
+          out.innerHTML = `<div class="ai-answer">${esc(await window.AI.ask(q, ctx) || "No insight returned.").replace(/\n/g, "<br>")}</div>`;
+        } catch (e) {
+          out.innerHTML = `<div class="notice" style="background:var(--amber-bg);border-color:#f3d9a8;color:var(--amber)">⚠️ ${esc(e.message || String(e))}</div>`;
+        }
+      });
+    },
+  };
+
   // expose helpers used by app shell
   window.PAGE_HELPERS = { State };
 })();
