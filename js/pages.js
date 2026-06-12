@@ -1684,6 +1684,15 @@
       return `
         <div class="page-head"><h1>Security &amp; Access</h1><p>Login activity, multi-factor adoption, and access health across procurement, regional, and shop users.</p></div>
 
+        <div class="card" style="margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <h3 class="card-title" style="margin:0">🪪 User Access Management <span class="badge green">live</span></h3>
+            <button class="btn btn-outline btn-sm" id="uamReload">↻ Refresh</button>
+          </div>
+          <p class="cell-sub" style="margin:6px 0 10px">New users create an account on the login screen and appear here as <b>Shop Manager</b>. Assign their role, shop, and region below — changes apply on their next page load.</p>
+          <div id="uamBox"><div class="cell-sub">⏳ Loading users…</div></div>
+        </div>
+
         <div class="grid cols-4" style="margin-bottom:16px">
           ${U.statCard({ label: "Logins (30d)", value: fmt.num(m.logins30d), accent: "navy", icon: "🔑", iconBg: "var(--navy-50)" })}
           ${U.statCard({ label: "Active Users", value: m.activeUsers + " / " + m.totalUsers, accent: "blue", icon: "👤", iconBg: "var(--blue-bg)" })}
@@ -1725,6 +1734,70 @@
             </tr></thead><tbody>${userRows}</tbody></table>
           </div>
         </div>`;
+    },
+    mount() {
+      const box = document.getElementById("uamBox");
+      if (!box) return;
+      const client = window.Auth && window.Auth.client && window.Auth.client();
+      if (!client) { box.innerHTML = `<div class="cell-sub">Connect Supabase to manage users.</div>`; return; }
+      const isAdmin = State.role === "Procurement Admin";
+      const me = window.CURRENT_USER || {};
+
+      const roleOpts = (sel) => Object.keys(P.ROLES).map((r) => `<option value="${esc(r)}" ${r === sel ? "selected" : ""}>${esc(r)}</option>`).join("");
+      const shopOpts = (sel) => `<option value="">— Any —</option>` + (P.SHOPS || []).map((s) => `<option value="${esc(s.shopName)}" ${s.shopName === sel ? "selected" : ""}>${esc(s.shopName)}</option>`).join("");
+      const regionOpts = (sel) => `<option value="">— Any —</option>` + (P.REGIONS || []).map((r) => `<option value="${esc(r)}" ${r === sel ? "selected" : ""}>${esc(r)}</option>`).join("");
+
+      async function load() {
+        box.innerHTML = `<div class="cell-sub">⏳ Loading users…</div>`;
+        const [profilesRes, adminsRes] = await Promise.all([
+          client.from("profiles").select("*").order("created_at", { ascending: true }),
+          client.from("admins").select("*"),
+        ]);
+        if (profilesRes.error) { box.innerHTML = `<div class="notice" style="background:var(--amber-bg);border-color:#f3d9a8;color:var(--amber)">⚠️ ${esc(profilesRes.error.message)}</div>`; return; }
+        const profiles = profilesRes.data || [];
+        const adminEmails = new Set(((adminsRes.data) || []).map((a) => String(a.email || "").toLowerCase()));
+
+        const rows = profiles.map((p) => {
+          const isMe = p.id === me.id;
+          const tag = adminEmails.has(String(p.email || "").toLowerCase()) ? ` <span class="badge purple">portal admin</span>` : "";
+          return `<tr data-uid="${esc(p.id)}">
+            <td><span class="cell-strong">${esc(p.full_name || "—")}${isMe ? ' <span class="badge blue">you</span>' : ""}</span><div class="cell-sub">${esc(p.email || "")}${tag}</div></td>
+            <td>${isAdmin ? `<select class="approve-select" data-f="role">${roleOpts(p.role)}</select>` : `<span class="badge navy">${esc(p.role)}</span>`}</td>
+            <td>${isAdmin ? `<select class="approve-select" data-f="shop">${shopOpts(p.shop || "")}</select>` : esc(p.shop || "—")}</td>
+            <td>${isAdmin ? `<select class="approve-select" data-f="region">${regionOpts(p.region || "")}</select>` : esc(p.region || "—")}</td>
+            <td class="cell-sub">${esc(String(p.created_at || "").slice(0, 10))}</td>
+            <td>${isAdmin ? `<button class="btn btn-primary btn-sm" data-save>Save</button>` : ""}<span class="cell-sub" data-msg style="margin-left:8px"></span></td>
+          </tr>`;
+        }).join("");
+
+        box.innerHTML = `
+          ${profiles.length ? `<div class="table-wrap" style="border:none"><table class="data" style="min-width:760px"><thead><tr>
+            <th>User</th><th>Role</th><th>Shop</th><th>Region</th><th>Joined</th><th></th>
+          </tr></thead><tbody>${rows}</tbody></table></div>`
+          : `<div class="cell-sub">No users yet. Share the portal URL — new sign-ups will appear here.</div>`}
+          ${isAdmin ? "" : `<div class="notice" style="margin-top:10px">🔒 Only a Procurement Admin can change roles.</div>`}`;
+
+        if (!isAdmin) return;
+        box.querySelectorAll("tr[data-uid]").forEach((tr) => {
+          const btn = tr.querySelector("[data-save]");
+          if (!btn) return;
+          btn.addEventListener("click", async () => {
+            const msg = tr.querySelector("[data-msg]");
+            const get = (f) => { const el = tr.querySelector(`[data-f="${f}"]`); return el ? el.value : null; };
+            btn.disabled = true; msg.textContent = "Saving…";
+            const { error } = await client.from("profiles")
+              .update({ role: get("role"), shop: get("shop"), region: get("region") })
+              .eq("id", tr.getAttribute("data-uid"));
+            btn.disabled = false;
+            msg.textContent = error ? "⚠️ " + error.message : "✅ Saved";
+            if (!error && tr.getAttribute("data-uid") === me.id) msg.textContent += " — reload to apply to yourself";
+          });
+        });
+      }
+
+      const reload = document.getElementById("uamReload");
+      if (reload) reload.addEventListener("click", load);
+      load();
     },
   };
 
