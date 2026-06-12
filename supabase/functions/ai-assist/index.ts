@@ -2,7 +2,7 @@
 // Calls Claude (Anthropic) or Gemini (Google) server-side so the API keys
 // never ship in the static front-end. Requires a valid Supabase JWT
 // (verify_jwt = true) and the ANTHROPIC_API_KEY and/or GEMINI_API_KEY secrets.
-// Actions: categorize | ocr | contract | analyze | ask | providers.
+// Actions: categorize | ocr | contract | analyze | ask | spend | mapcols | providers.
 // The request may include `provider`: "claude" (default) or "gemini".
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
@@ -402,6 +402,91 @@ async function ask(body: any, provider: string) {
   return { text: claudeText(data), provider };
 }
 
+/* ------------------------- spend (any format) --------------------- */
+// Smart spend ingestion. Two helpers power "upload anything":
+//  - mapcols: given a table's header + sample rows, map arbitrary columns to
+//    our fixed schema (scales to huge files — we apply the mapping in JS).
+//  - spend: extract dated spend lines straight from a document (PDF / image /
+//    pasted text) when there is no clean table.
+const SPEND_ITEM = {
+  type: "object",
+  properties: {
+    date: { type: "string", description: "ISO YYYY-MM-DD. If only month/year is shown use the 1st of that month; empty string if no date." },
+    shop: { type: "string", description: "Property / shop / location / entity name if shown" },
+    vendor: { type: "string", description: "Supplier / payee" },
+    category: { type: "string", description: "Best-fit category from the allowed taxonomy" },
+    subcategory: { type: "string" },
+    amount: { type: "number", description: "Total spend for this line (the money), as a number" },
+    quantity: { type: "number" },
+    description: { type: "string" },
+  },
+  required: ["amount"],
+};
+const SPEND_SYS =
+  "You extract dated spend line items from an accounts-payable export, invoice, vendor statement, receipt, or messy spreadsheet for a hotel-supply portal. " +
+  "Return EVERY real purchase/spend line. For each: the transaction date (ISO YYYY-MM-DD; if only a month or period is given use the 1st of that month; empty if truly none), the property/shop name if present, the vendor, a category and subcategory chosen from the allowed taxonomy, the line's total spend amount as a number, the quantity if shown, and a short description. Ignore subtotals, tax-only, and header/footer lines.\n" +
+  "Allowed taxonomy (category -> subcategories):\n";
+
+// deno-lint-ignore no-explicit-any
+async function spend(body: any) {
+  const sys = SPEND_SYS + taxonomyText(body.taxonomy);
+  const hasDoc = body.data && body.mediaType;
+  const userText = hasDoc
+    ? "Extract every dated spend line item from this document."
+    : "Extract every dated spend line item from this data:\n\n" + String(body.text || "").slice(0, 120000);
+  const content = hasDoc
+    ? [docPart(body.mediaType, body.data, "claude"), { type: "text", text: userText }]
+    : userText;
+  const data = await callClaude({
+    model: CLAUDE_SMART,
+    max_tokens: 8192,
+    system: sys,
+    tools: [{
+      name: "return_spend",
+      description: "Return every dated spend line item found.",
+      input_schema: { type: "object", properties: { items: { type: "array", items: SPEND_ITEM } }, required: ["items"] },
+    }],
+    tool_choice: { type: "tool", name: "return_spend" },
+    messages: [{ role: "user", content }],
+  });
+  return { items: (toolInput(data, "return_spend") || {}).items || [], provider: "claude" };
+}
+
+const MAPCOLS_SYS =
+  "You map the columns of an arbitrary accounts-payable / spend export to a fixed schema. " +
+  "Given the header row and a few sample data rows, return the 0-based column index for each target field, or -1 if it is not present. " +
+  "Targets: date (invoice/transaction/posting date or period), shop (property/location/store/entity), category (spend category / GL account), subcategory, vendor (supplier/payee), amount (the column holding the line's money/total spend), quantity, description (item/memo/detail). " +
+  "Also return dateFormat: one of ISO, MDY, DMY, EXCEL, or UNKNOWN based on how the date column looks.";
+
+// deno-lint-ignore no-explicit-any
+async function mapcols(body: any) {
+  const payload =
+    "HEADER (0-based columns):\n" + JSON.stringify(body.header || []) +
+    "\n\nSAMPLE ROWS:\n" + JSON.stringify((body.samples || []).slice(0, 40));
+  const data = await callClaude({
+    model: CLAUDE_FAST,
+    max_tokens: 1024,
+    system: MAPCOLS_SYS,
+    tools: [{
+      name: "return_mapping",
+      description: "Return the 0-based column index for each field (-1 if absent) and a dateFormat hint.",
+      input_schema: {
+        type: "object",
+        properties: {
+          date: { type: "integer" }, shop: { type: "integer" }, category: { type: "integer" },
+          subcategory: { type: "integer" }, vendor: { type: "integer" }, amount: { type: "integer" },
+          quantity: { type: "integer" }, description: { type: "integer" },
+          dateFormat: { type: "string", enum: ["ISO", "MDY", "DMY", "EXCEL", "UNKNOWN"] },
+        },
+        required: ["date", "amount"],
+      },
+    }],
+    tool_choice: { type: "tool", name: "return_mapping" },
+    messages: [{ role: "user", content: payload }],
+  });
+  return { mapping: toolInput(data, "return_mapping") || {}, provider: "claude" };
+}
+
 /* ------------------------------ serve ----------------------------- */
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -430,6 +515,8 @@ Deno.serve(async (req: Request) => {
     if (body.action === "contract") return json(await contract(body, provider));
     if (body.action === "analyze") return json(await analyze(body, provider));
     if (body.action === "ask") return json(await ask(body, provider));
+    if (body.action === "spend") return json(await spend(body));
+    if (body.action === "mapcols") return json(await mapcols(body));
     return json({ error: "Unknown action: " + body.action }, 400);
   } catch (e) {
     return json({ error: String((e && (e as Error).message) || e) }, 500);
