@@ -1118,20 +1118,25 @@
   function apVendors() { return Array.from(new Set(AP.map((r) => r.vendor).filter(Boolean))).sort(); }
 
   // Price compliance: compare each invoiced AP line to the vendor's contracted
-  // price (fuzzy item match within the same vendor). Flags overpayments (paid
-  // above contract) and off-contract / maverick spend (no matching contract).
+  // price on a normalized PER-EACH basis (pack/case sizes divided out via the
+  // UoM parser). Flags overpayments (paid above contract), off-contract /
+  // maverick spend, and — when the per-each ratio is implausibly large — likely
+  // UoM mismatches for review instead of counting them as real overpayment.
   function priceCompliance(opts) {
     opts = opts || {};
-    const tol = opts.tol != null ? opts.tol : 0.02; // 2% grace
+    const tol = opts.tol != null ? opts.tol : 0.02;        // 2% grace
+    const outlier = opts.outlier != null ? opts.outlier : 6; // ratio beyond this = likely UoM issue
+    const packQty = (s) => (window.UOM ? (window.UOM.parsePackQty(s) || 1) : 1);
     const idx = {};
     CONTRACTS.forEach((c) => {
       const v = (c.vendorName || "").toLowerCase();
-      const items = (c.items || []).filter((it) => +it.unitPrice > 0).map((it) => ({ name: it.name, price: +it.unitPrice }));
+      const items = (c.items || []).filter((it) => +it.unitPrice > 0)
+        .map((it) => ({ name: it.name, price: +it.unitPrice, pack: packQty(((it.uom || "") + " " + (it.packSize || "")).trim()) }));
       idx[v] = (idx[v] || []).concat(items);
     });
     let invoiced = 0, onContract = 0, offContract = 0, overpayment = 0, compliant = 0, checked = 0;
     const vend = {};
-    const overRows = [], offRows = [];
+    const overRows = [], offRows = [], uomRows = [];
     AP.forEach((r) => {
       const amt = +r.amount || 0; if (amt <= 0) return;
       invoiced += amt;
@@ -1148,11 +1153,19 @@
         onContract += amt;
         const qty = +r.quantity || 0;
         if (qty > 0) {
-          const actualUnit = amt / qty; checked++;
-          if (actualUnit > best.price * (1 + tol)) {
-            const over = round((actualUnit - best.price) * qty);
+          checked++;
+          const apPack = packQty(label);                  // eaches per invoiced unit
+          const paidEach = (amt / qty) / apPack;          // normalized $/each
+          const contractEach = best.price / best.pack;    // normalized $/each
+          const hi = Math.max(paidEach, contractEach), lo = Math.min(paidEach, contractEach);
+          const ratio = lo > 0 ? hi / lo : Infinity;
+          const base = { shop: r.shop, vendor: r.vendor, item: label, sku: r.sku, date: r.date, qty, paidEach: round(paidEach, 4), contractEach: round(contractEach, 4), ratio: isFinite(ratio) ? Math.round(ratio * 10) / 10 : 999, amount: round(amt), match: best.name, score: Math.round(score * 100) };
+          if (ratio > outlier) {
+            uomRows.push(base);                           // quarantine: almost certainly a pack/UoM mismatch
+          } else if (paidEach > contractEach * (1 + tol)) {
+            const over = round((paidEach - contractEach) * qty * apPack);
             overpayment += over; ve.overpayment += over;
-            overRows.push({ shop: r.shop, vendor: r.vendor, item: label, sku: r.sku, date: r.date, qty, actualUnit: round(actualUnit, 4), contractUnit: round(best.price, 4), over, amount: round(amt), match: best.name, score: Math.round(score * 100) });
+            overRows.push(Object.assign({ over }, base));
           } else { compliant += amt; }
         }
       } else {
@@ -1162,17 +1175,18 @@
     });
     overRows.sort((a, b) => b.over - a.over);
     offRows.sort((a, b) => b.amount - a.amount);
+    uomRows.sort((a, b) => b.ratio - a.ratio);
     const byVendor = Object.keys(vend).map((k) => vend[k]).map((x) => ({ vendor: x.vendor, invoiced: round(x.invoiced), overpayment: round(x.overpayment), offContract: round(x.offContract) })).sort((a, b) => (b.overpayment + b.offContract) - (a.overpayment + a.offContract));
     return {
       hasAp: AP.some((r) => +r.amount > 0), hasContracts: CONTRACTS.length > 0,
       totals: {
         invoiced: round(invoiced), onContract: round(onContract), offContract: round(offContract),
-        overpayment: round(overpayment), compliant: round(compliant), checked,
+        overpayment: round(overpayment), compliant: round(compliant), checked, uomFlagged: uomRows.length,
         onContractPct: invoiced > 0 ? round(onContract / invoiced * 100, 1) : 0,
         offContractPct: invoiced > 0 ? round(offContract / invoiced * 100, 1) : 0,
         leakage: round(overpayment + offContract),
       },
-      overRows, offRows, byVendor,
+      overRows, offRows, uomRows, byVendor,
     };
   }
 
