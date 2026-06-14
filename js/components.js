@@ -105,8 +105,41 @@
     return `<div class="confidence-meter"><span style="width:${Math.round(score * 100)}%;background:${color}"></span></div>`;
   }
 
+  /* ------------------------------ Charts (SVG) ------------------------------ */
+  // Donut: segments = [{ label, value, color }]. Renders a ring + legend.
+  function donut(segments) {
+    const segs = (segments || []).filter((s) => s.value > 0);
+    const total = segs.reduce((s, x) => s + x.value, 0);
+    if (!total) return `<div class="empty" style="padding:24px">No data to chart yet.</div>`;
+    const r = 15.9155, c = 2 * Math.PI * r;
+    let off = 0;
+    const arcs = segs.map((s) => {
+      const len = (s.value / total) * c;
+      const el = `<circle r="${r}" cx="18" cy="18" fill="none" stroke="${s.color || "var(--teal)"}" stroke-width="4.6" stroke-dasharray="${len.toFixed(3)} ${(c - len).toFixed(3)}" stroke-dashoffset="${(-off).toFixed(3)}" transform="rotate(-90 18 18)" stroke-linecap="butt"></circle>`;
+      off += len; return el;
+    }).join("");
+    const legend = segs.sort((a, b) => b.value - a.value).map((s) => `<div class="dlg"><span class="dot" style="background:${s.color || "var(--teal)"}"></span><span class="dlg-l">${esc(s.label)}</span><b>${fmt.moneyShort(s.value)}</b></div>`).join("");
+    return `<div class="donut-wrap">
+      <svg viewBox="0 0 36 36" class="donut-svg" role="img">
+        <circle r="${r}" cx="18" cy="18" fill="none" stroke="var(--gray-100)" stroke-width="4.6"></circle>
+        ${arcs}
+        <text x="18" y="17.6" class="donut-center">${fmt.moneyShort(total)}</text>
+        <text x="18" y="22" class="donut-sub">savings</text>
+      </svg>
+      <div class="donut-legend">${legend}</div>
+    </div>`;
+  }
+
+  // Sparkline: tiny inline trend line.
+  function sparkline(data, color) {
+    if (!data || data.length < 2) return "";
+    const w = 96, h = 30, max = Math.max(...data), min = Math.min(...data), rng = (max - min) || 1;
+    const pts = data.map((v, i) => `${((i / (data.length - 1)) * w).toFixed(1)},${(h - ((v - min) / rng) * (h - 5) - 3).toFixed(1)}`).join(" ");
+    return `<svg width="${w}" height="${h}" class="spark"><polyline points="${pts}" fill="none" stroke="${color || "var(--teal)"}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+
   window.UI = {
     esc, statusBadge, oppBadge, savingsBadge, riskBadge, easeBadge, confidenceBadge,
-    statCard, categoryTile, hbar, progress, confidenceMeter,
+    statCard, categoryTile, hbar, progress, confidenceMeter, donut, sparkline,
   };
 })();
