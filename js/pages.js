@@ -2610,6 +2610,160 @@
     },
   };
 
+  /* ============== VENDOR SPEND (vendor sales reports) ============== */
+  PAGES.vendorspend = {
+    title: "Vendor Spend",
+    crumb: "Vendor Spend",
+    render() {
+      const canEdit = State.role === "Procurement Admin";
+      const hasData = (P.AP || []).length > 0;
+      const head = `<div class="page-head"><h1>🧾 Vendor Spend <span class="badge navy" style="vertical-align:middle">Sales reports</span></h1>
+        <p>Upload vendor sales reports to see spend, volume, and SKU trends — reconciled to your shops — so leadership can spot expenses and cost-savings opportunities at a glance.</p></div>`;
+      const upload = canEdit ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
+          <input type="file" id="vsFile" accept=".csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg,.txt,.tsv" style="display:none">
+          <button class="btn btn-primary btn-sm" id="vsUpload">🤖 Upload vendor sales report</button>
+          ${hasData ? `<button class="btn btn-outline btn-sm" id="vsClear">🗑 Clear spend data</button>` : ""}
+          <span class="cell-sub" id="vsMsg"></span>
+        </div>` : "";
+
+      if (!hasData) {
+        return `${head}${upload}<div class="card"><h3 class="card-title">Get started</h3>
+          <p class="text-muted" style="max-width:620px">Upload a vendor's sales report in any format — Excel, CSV, PDF, or an image. Claude maps the columns (shop, SKU, vendor, date, amount, quantity), fuzzy-matches shop names to your brands, and flags duplicate SKUs. Then this page shows spend &amp; volume trends by vendor, category, and SKU.</p>
+          ${canEdit ? "" : `<div class="notice" style="margin-top:12px">Ask a Procurement Admin to upload vendor reports.</div>`}</div>`;
+      }
+
+      const sel = State.vendorFilter && (P.apVendors().includes(State.vendorFilter) || State.vendorFilter === "All") ? State.vendorFilter : "All";
+      const vOpts = [`<option value="All" ${sel === "All" ? "selected" : ""}>All vendors</option>`].concat(P.apVendors().map((v) => `<option ${v === sel ? "selected" : ""}>${esc(v)}</option>`)).join("");
+      const m = P.apVendorSummary(sel);
+      const unmatched = P.unmatchedApShops();
+      const dups = P.vendorDuplicates(sel === "All" ? null : sel);
+
+      const trend = m.trend.slice(-12);
+      const maxTrend = mx(trend.map((t) => t.amount));
+      const trendBars = trend.length ? trend.map((t) => U.hbar(t.ym, t.amount, maxTrend, fmt.moneyShort(t.amount))).join("") : `<div class="cell-sub">No dated lines.</div>`;
+      const maxVend = mx(m.byVendor.map((v) => v.spend));
+      const vendBars = m.byVendor.slice(0, 8).map((v) => U.hbar(v.vendor, v.spend, maxVend, fmt.moneyShort(v.spend) + ` · ${fmt.num(v.skus)} SKUs`)).join("");
+      const topRows = m.topSkus.map((s) => `<tr>
+          <td class="cell-strong">${esc(s.name)}${s.sku ? ` <span class="mono cell-sub">${esc(s.sku)}</span>` : ""}</td>
+          <td>${esc(s.vendor)}</td><td>${esc(s.category)}</td>
+          <td class="num">${fmt.num(s.qty)}</td><td class="num cell-strong">${fmt.money(s.spend)}</td></tr>`).join("");
+
+      const reconcile = (canEdit && unmatched.length) ? `<div class="card" style="margin-bottom:16px;border-left:3px solid var(--sand)">
+          <h3 class="card-title">🔗 Reconcile shop names (${unmatched.length})</h3>
+          <p class="cell-sub" style="margin-top:-4px">These names from the report don't match a brand. Pick the right shop and apply — fuzzy suggestions are pre-selected.</p>
+          <div class="table-wrap" style="border:none"><table class="data" style="min-width:640px"><thead><tr><th>Report name</th><th class="num">Lines</th><th class="num">Spend</th><th>Map to shop</th><th></th></tr></thead><tbody>
+          ${unmatched.map((u) => `<tr>
+            <td class="cell-strong">${esc(u.raw)}</td><td class="num">${u.count}</td><td class="num">${fmt.money(u.spend)}</td>
+            <td><select class="approve-select" data-recon="${esc(u.raw)}" style="max-width:none;width:100%">
+              <option value="">— choose —</option>
+              ${(P.SHOPS || []).map((b) => `<option ${b.shopName === u.suggestion ? "selected" : ""}>${esc(b.shopName)}</option>`).join("")}
+            </select>${u.suggestion ? `<div class="cell-sub">suggested: ${esc(u.suggestion)} (${u.score}%)</div>` : ""}</td>
+            <td><button class="btn btn-outline btn-sm" data-recon-apply="${esc(u.raw)}">Apply</button></td>
+          </tr>`).join("")}
+          </tbody></table></div></div>` : "";
+
+      const dupPanel = dups.length ? `<div class="card" style="margin-bottom:16px;border-left:3px solid var(--red)">
+          <h3 class="card-title">🚩 Duplicate SKUs / products — same vendor (${dups.length})</h3>
+          <div class="table-wrap" style="border:none"><table class="data" style="min-width:640px"><thead><tr><th>Flag</th><th>Product</th><th>Vendor</th><th class="num">Seen</th><th class="num">Price range</th></tr></thead><tbody>
+          ${dups.slice(0, 12).map((d) => `<tr><td><span class="badge ${d.kind === "Same SKU" ? "red" : "amber"}">${esc(d.kind)}</span></td>
+            <td class="cell-strong">${esc(d.name)}${d.sku ? ` <span class="mono cell-sub">${esc(d.sku)}</span>` : ""}</td><td>${esc(d.vendor)}</td>
+            <td class="num">${d.count}×</td><td class="num">${d.spread > 0 ? `<span class="text-red">${fmt.money(d.min, 2)}–${fmt.money(d.max, 2)}</span>` : fmt.money(d.min, 2)}</td></tr>`).join("")}
+          </tbody></table></div></div>` : "";
+
+      return `${head}${upload}
+        <div class="toolbar"><div class="field" style="margin:0;min-width:240px"><label>Vendor</label><select id="vsVendor" class="approve-select" style="max-width:none;width:100%">${vOpts}</select></div></div>
+        <div class="grid cols-4" style="margin-bottom:16px">
+          ${U.statCard({ label: "Total Spend", value: fmt.money(m.totalSpend), accent: "navy", icon: "💵", iconBg: "var(--navy-50)" })}
+          ${U.statCard({ label: "Total Volume (units)", value: fmt.num(m.totalQty), accent: "blue", icon: "📦", iconBg: "var(--blue-bg)" })}
+          ${U.statCard({ label: "Distinct SKUs", value: fmt.num(m.distinctSkus), accent: "green", icon: "🏷️", iconBg: "var(--green-bg)" })}
+          ${U.statCard({ label: "Vendors", value: fmt.num(m.vendorCount), accent: "navy", icon: "🤝", iconBg: "var(--navy-50)" })}
+        </div>
+        ${reconcile}
+        ${dupPanel}
+        <div class="grid cols-2" style="margin-bottom:16px">
+          <div class="card"><h3 class="card-title">📈 Spend by month</h3>${trendBars}</div>
+          <div class="card"><h3 class="card-title">🤝 Spend by vendor</h3>${vendBars || `<div class="cell-sub">No vendor data.</div>`}</div>
+        </div>
+        <div class="grid cols-2" style="margin-bottom:16px">
+          <div class="card"><h3 class="card-title">🗂️ Spend by category</h3>${U.donut(m.byCategory.map((c) => ({ label: c.name, value: c.value, color: (P.CATEGORY_META[c.name] || {}).color || "var(--teal)" })))}</div>
+          <div class="card"><h3 class="card-title">🏆 Top SKUs by spend</h3>
+            <div class="table-wrap" style="border:none"><table class="data" style="min-width:480px"><thead><tr><th>Product</th><th>Vendor</th><th>Category</th><th class="num">Qty</th><th class="num">Spend</th></tr></thead><tbody>${topRows}</tbody></table></div>
+          </div>
+        </div>`;
+    },
+    mount() {
+      const rerender = () => window.App.renderCurrent();
+      const vsel = document.getElementById("vsVendor");
+      if (vsel) vsel.addEventListener("change", () => { State.vendorFilter = vsel.value; rerender(); });
+
+      document.querySelectorAll("[data-recon-apply]").forEach((b) => b.addEventListener("click", async () => {
+        const raw = b.getAttribute("data-recon-apply");
+        const sel = document.querySelector(`[data-recon="${(window.CSS && CSS.escape) ? CSS.escape(raw) : raw}"]`);
+        const to = sel && sel.value;
+        if (!to) { b.textContent = "pick a shop"; return; }
+        b.disabled = true; b.textContent = "Applying…";
+        P.remapApShop(raw, to);
+        try { if (window.Store && window.Store.available()) await window.Store.pushAp(); } catch (_) { /* ignore */ }
+        rerender();
+      }));
+
+      const btn = document.getElementById("vsUpload");
+      const file = document.getElementById("vsFile");
+      const msg = document.getElementById("vsMsg");
+      async function readMatrix(f) {
+        const name = f.name.toLowerCase();
+        if (name.endsWith(".csv") || f.type === "text/csv") return P.parseCsv(await f.text());
+        const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
+        let matrix = [];
+        wb.SheetNames.forEach((sn, i) => {
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: false, defval: "" });
+          matrix = i === 0 ? rows : matrix.concat(rows.slice(1));
+        });
+        return matrix;
+      }
+      if (btn && file) {
+        btn.addEventListener("click", () => file.click());
+        file.addEventListener("change", async () => {
+          const f = file.files && file.files[0];
+          if (!f) return;
+          const name = f.name.toLowerCase();
+          const isDoc = /\.(pdf|png|jpe?g)$/.test(name) || /^(image|application\/pdf)/.test(f.type || "");
+          const isTable = /\.(csv|xlsx|xls)$/.test(name) || /csv|sheet|excel/.test(f.type || "");
+          const aiReady = window.AI && window.Store && window.Store.available();
+          try {
+            let added = 0;
+            if (isDoc) {
+              msg.textContent = "🤖 Claude is reading " + f.name + "…";
+              ({ added } = P.ingestApItems(await window.AI.extractSpend({ file: f })));
+            } else if (isTable) {
+              const matrix = await readMatrix(f);
+              if (!matrix.length) { msg.textContent = "⚠️ Could not read any rows."; return; }
+              let mapping = null;
+              if (aiReady) { try { msg.textContent = "🤖 Claude is mapping the columns…"; mapping = await window.AI.mapColumns(matrix[0], matrix.slice(1, 25)); } catch (_) { mapping = null; } }
+              msg.textContent = "Importing…";
+              ({ added } = P.ingestApRows(matrix, mapping));
+            } else {
+              msg.textContent = "🤖 Claude is reading your data…";
+              ({ added } = P.ingestApItems(await window.AI.extractSpend({ text: await f.text() })));
+            }
+            if (!added) { msg.textContent = "⚠️ No spend lines found in that file."; return; }
+            msg.textContent = `Saving ${added} lines…`;
+            if (window.Store && window.Store.available()) await window.Store.pushAp();
+            rerender();
+          } catch (e) { msg.textContent = "⚠️ " + (e.message || e); }
+          finally { file.value = ""; }
+        });
+      }
+      const clr = document.getElementById("vsClear");
+      if (clr) clr.addEventListener("click", async () => {
+        if (!confirm("Remove ALL uploaded vendor/AP spend data?")) return;
+        P.apClear();
+        try { if (window.Store && window.Store.available()) await window.Store.pushAp(); } catch (_) { /* ignore */ }
+        rerender();
+      });
+    },
+  };
+
   // expose helpers used by app shell
   window.PAGE_HELPERS = { State };
 })();

@@ -652,6 +652,16 @@
         if (it.name) add("NAME" + v + "" + normName(it.name), rec);
       });
     });
+    // Vendor sales-report (AP) lines keyed by vendor + sku and vendor + product.
+    AP.forEach((r) => {
+      const vendor = (r.vendor || "").trim();
+      if (!vendor || (only && vendor.toLowerCase() !== only)) return;
+      const v = vendor.toLowerCase();
+      const unit = (r.quantity > 0) ? (r.amount / r.quantity) : (+r.amount || 0);
+      const rec = { source: "Vendor report", vendor, sku: r.sku || "", name: r.description || r.sku || "", shop: r.shop || "", price: round(unit), uom: "", pack: "" };
+      if (r.sku) add("SKU" + v + "" + r.sku.toLowerCase(), rec);
+      if (r.description) add("NAME" + v + "" + normName(r.description), rec);
+    });
     const flags = [];
     Object.keys(map).forEach((k) => {
       const grp = map[k];
@@ -1011,21 +1021,101 @@
       year: d ? d.getFullYear() : 0,
       monthIndex: d ? d.getMonth() : -1,
       ym: d ? (d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0")) : "",
+      sku: String(f.sku || "").trim(),
       shop: f.shop || "", shopCode: f.shopCode || "", region: f.region || "",
       category: category || "Other", categoryGroup: group, subcategory: f.subcategory || "",
       vendor: f.vendor || "", amount: round(amount), quantity: qty, description: f.description || "",
     };
   }
 
-  // Resolve a free-text shop/property string to a known brand (by code or name)
-  // so AP rows align with the catalog's shops and inherit a region.
+  // Token Dice similarity (0..1) with exact/substring boosts — for matching a
+  // vendor report's shop name to one of our brands.
+  function tokens(s) { return normName(s).split(" ").filter((t) => t.length > 1); }
+  function similarity(a, b) {
+    a = normName(a); b = normName(b);
+    if (!a || !b) return 0;
+    if (a === b) return 1;
+    if (a.includes(b) || b.includes(a)) return 0.9;
+    const ta = tokens(a), tb = tokens(b);
+    if (!ta.length || !tb.length) return 0;
+    const setB = new Set(tb); let inter = 0;
+    ta.forEach((t) => { if (setB.has(t)) inter++; });
+    return (2 * inter) / (ta.length + tb.length);
+  }
+  // Best fuzzy brand match for a raw shop name (or null below threshold).
+  function fuzzyShop(raw, threshold) {
+    const r = normName(raw); if (!r) return null;
+    let best = null, score = 0;
+    SHOPS.forEach((b) => {
+      const s = Math.max(similarity(r, b.shopName), similarity(r, b.code));
+      if (s > score) { score = s; best = b; }
+    });
+    return best && score >= (threshold || 0.6) ? { brand: best, score } : null;
+  }
+
+  // Resolve a free-text shop/property string to a known brand — exact first,
+  // then fuzzy — so AP rows align with the catalog's shops and inherit a region.
   function resolveApShop(rec) {
     const raw = String(rec.shop || "").trim();
     if (!raw) return rec;
-    const hit = SHOPS.find((b) => b.code.toLowerCase() === raw.toLowerCase() || b.shopName.toLowerCase() === raw.toLowerCase());
+    let hit = SHOPS.find((b) => b.code.toLowerCase() === raw.toLowerCase() || b.shopName.toLowerCase() === raw.toLowerCase());
+    if (!hit) { const f = fuzzyShop(raw, 0.72); if (f) hit = f.brand; }
     if (hit) { rec.shop = hit.shopName; rec.shopCode = hit.code; rec.region = rec.region || hit.region; }
     return rec;
   }
+
+  // Distinct AP shop names that don't match a known brand, with a fuzzy
+  // suggestion — drives the reconciliation step on the Vendor Spend page.
+  function unmatchedApShops() {
+    const brand = new Set(SHOPS.map((b) => b.shopName.toLowerCase()));
+    const m = {};
+    AP.forEach((r) => {
+      const s = (r.shop || "").trim(); if (!s || brand.has(s.toLowerCase())) return;
+      const e = m[s] || (m[s] = { raw: s, count: 0, spend: 0 });
+      e.count++; e.spend += r.amount;
+    });
+    return Object.keys(m).map((k) => {
+      const f = fuzzyShop(m[k].raw, 0.4);
+      return { raw: m[k].raw, count: m[k].count, spend: round(m[k].spend), suggestion: f ? f.brand.shopName : "", score: f ? Math.round(f.score * 100) : 0 };
+    }).sort((a, b) => b.spend - a.spend);
+  }
+
+  // Remap every AP row with a given raw shop name onto a known brand.
+  function remapApShop(raw, toShopName) {
+    const brand = SHOPS.find((b) => b.shopName === toShopName);
+    let n = 0;
+    AP.forEach((r) => {
+      if ((r.shop || "") === raw) { r.shop = toShopName; if (brand) { r.shopCode = brand.code; r.region = brand.region; } n++; }
+    });
+    return n;
+  }
+
+  // Vendor-centric roll-ups for the Vendor Spend page (optional vendor filter).
+  function apVendorSummary(vendorFilter) {
+    const rows = AP.filter((r) => r.amount > 0 && (!vendorFilter || vendorFilter === "All" || r.vendor === vendorFilter));
+    const totalSpend = round(rows.reduce((a, r) => a + r.amount, 0));
+    const totalQty = round(rows.reduce((a, r) => a + (r.quantity || 0), 0));
+    const skuKey = (r) => (r.sku || normName(r.description) || normName(r.category)) + "@" + r.vendor;
+    const vend = {}, cat = {}, ym = {}, sku = {};
+    rows.forEach((r) => {
+      const v = r.vendor || "—";
+      (vend[v] = vend[v] || { vendor: v, spend: 0, qty: 0, skus: new Set() });
+      vend[v].spend += r.amount; vend[v].qty += r.quantity || 0; vend[v].skus.add(r.sku || normName(r.description));
+      const g = r.categoryGroup || "Other"; cat[g] = (cat[g] || 0) + r.amount;
+      if (r.ym) ym[r.ym] = (ym[r.ym] || 0) + r.amount;
+      const k = skuKey(r);
+      (sku[k] = sku[k] || { name: r.description || r.sku || "—", sku: r.sku || "", vendor: r.vendor || "", category: r.categoryGroup || "", spend: 0, qty: 0 });
+      sku[k].spend += r.amount; sku[k].qty += r.quantity || 0;
+    });
+    const byVendor = Object.values(vend).map((v) => ({ vendor: v.vendor, spend: round(v.spend), qty: round(v.qty), skus: v.skus.size })).sort((a, b) => b.spend - a.spend);
+    const byCategory = Object.keys(cat).map((k) => ({ name: k, value: round(cat[k]) })).sort((a, b) => b.value - a.value);
+    const trend = Object.keys(ym).sort().map((k) => ({ ym: k, amount: round(ym[k]) }));
+    const topSkus = Object.values(sku).map((s) => ({ ...s, spend: round(s.spend), qty: round(s.qty) })).sort((a, b) => b.spend - a.spend).slice(0, 20);
+    const distinctSkus = Object.keys(sku).length;
+    return { lines: rows.length, totalSpend, totalQty, distinctSkus, vendorCount: byVendor.length, byVendor, byCategory, trend, topSkus };
+  }
+
+  function apVendors() { return Array.from(new Set(AP.map((r) => r.vendor).filter(Boolean))).sort(); }
 
   // Ingest a header+rows matrix (from CSV/XLSX) into AP. If `mapping` (from
   // Claude's mapcols) is supplied, use those 0-based column indices; otherwise
@@ -1044,6 +1134,7 @@
     const ai = valid(map.amount) ? map.amount : find(["amount", "spend", "total", "cost", "ext price", "extended", "value"]);
     const qi = valid(map.quantity) ? map.quantity : find(["quantity", "qty", "units"]);
     const desi = valid(map.description) ? map.description : find(["description", "item", "product", "memo", "detail"]);
+    const ski = valid(map.sku) ? map.sku : find(["sku", "item number", "item #", "item code", "product id", "product code", "part", "mpn", "material"]);
     let added = 0;
     for (let r = 1; r < matrix.length; r++) {
       const row = matrix[r];
@@ -1051,7 +1142,7 @@
       const get = (i) => (i >= 0 ? row[i] : "");
       const rec = makeApRow({
         date: get(di), shop: String(get(si) || "").trim(), category: get(ci), subcategory: get(subi),
-        vendor: get(vi), amount: get(ai), quantity: get(qi), description: get(desi),
+        vendor: get(vi), amount: get(ai), quantity: get(qi), description: get(desi), sku: get(ski),
       });
       if (!rec.date && !rec.amount) continue;
       resolveApShop(rec);
@@ -1208,6 +1299,11 @@
     apShops,
     apShopSavings,
     apSavingsAll,
+    apVendorSummary,
+    apVendors,
+    unmatchedApShops,
+    remapApShop,
+    fuzzyShop,
     apClear,
     MARKET,
     weekOf,

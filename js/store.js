@@ -100,12 +100,12 @@
     id: a.id,
     shop: a.shop || "", shop_code: a.shopCode || "", region: a.region || "",
     category: a.category || "Other", subcategory: a.subcategory || "",
-    vendor: a.vendor || "", invoice_date: a.date || null,
+    vendor: a.vendor || "", invoice_date: a.date || null, sku: a.sku || "",
     amount: +a.amount || 0, quantity: +a.quantity || 0, description: a.description || "",
   });
   const rowToAp = (r) => P.makeApRow({
     id: r.id, date: r.invoice_date, shop: r.shop, shopCode: r.shop_code, region: r.region,
-    category: r.category, subcategory: r.subcategory, vendor: r.vendor,
+    category: r.category, subcategory: r.subcategory, vendor: r.vendor, sku: r.sku,
     amount: r.amount, quantity: r.quantity, description: r.description,
   });
 
