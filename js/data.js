@@ -1117,6 +1117,65 @@
 
   function apVendors() { return Array.from(new Set(AP.map((r) => r.vendor).filter(Boolean))).sort(); }
 
+  // Price compliance: compare each invoiced AP line to the vendor's contracted
+  // price (fuzzy item match within the same vendor). Flags overpayments (paid
+  // above contract) and off-contract / maverick spend (no matching contract).
+  function priceCompliance(opts) {
+    opts = opts || {};
+    const tol = opts.tol != null ? opts.tol : 0.02; // 2% grace
+    const idx = {};
+    CONTRACTS.forEach((c) => {
+      const v = (c.vendorName || "").toLowerCase();
+      const items = (c.items || []).filter((it) => +it.unitPrice > 0).map((it) => ({ name: it.name, price: +it.unitPrice }));
+      idx[v] = (idx[v] || []).concat(items);
+    });
+    let invoiced = 0, onContract = 0, offContract = 0, overpayment = 0, compliant = 0, checked = 0;
+    const vend = {};
+    const overRows = [], offRows = [];
+    AP.forEach((r) => {
+      const amt = +r.amount || 0; if (amt <= 0) return;
+      invoiced += amt;
+      const items = idx[(r.vendor || "").toLowerCase()] || [];
+      const label = r.description || r.sku || "";
+      let best = null, score = 0;
+      items.forEach((it) => {
+        const s = Math.max(similarity(label, it.name), r.sku ? similarity(r.sku, it.name) : 0);
+        if (s > score) { score = s; best = it; }
+      });
+      const ve = (vend[r.vendor || "—"] = vend[r.vendor || "—"] || { vendor: r.vendor || "—", invoiced: 0, overpayment: 0, offContract: 0 });
+      ve.invoiced += amt;
+      if (best && score >= 0.6) {
+        onContract += amt;
+        const qty = +r.quantity || 0;
+        if (qty > 0) {
+          const actualUnit = amt / qty; checked++;
+          if (actualUnit > best.price * (1 + tol)) {
+            const over = round((actualUnit - best.price) * qty);
+            overpayment += over; ve.overpayment += over;
+            overRows.push({ shop: r.shop, vendor: r.vendor, item: label, sku: r.sku, date: r.date, qty, actualUnit: round(actualUnit, 4), contractUnit: round(best.price, 4), over, amount: round(amt), match: best.name, score: Math.round(score * 100) });
+          } else { compliant += amt; }
+        }
+      } else {
+        offContract += amt; ve.offContract += amt;
+        offRows.push({ shop: r.shop, vendor: r.vendor, item: label, sku: r.sku, date: r.date, qty: +r.quantity || 0, amount: round(amt) });
+      }
+    });
+    overRows.sort((a, b) => b.over - a.over);
+    offRows.sort((a, b) => b.amount - a.amount);
+    const byVendor = Object.keys(vend).map((k) => vend[k]).map((x) => ({ vendor: x.vendor, invoiced: round(x.invoiced), overpayment: round(x.overpayment), offContract: round(x.offContract) })).sort((a, b) => (b.overpayment + b.offContract) - (a.overpayment + a.offContract));
+    return {
+      hasAp: AP.some((r) => +r.amount > 0), hasContracts: CONTRACTS.length > 0,
+      totals: {
+        invoiced: round(invoiced), onContract: round(onContract), offContract: round(offContract),
+        overpayment: round(overpayment), compliant: round(compliant), checked,
+        onContractPct: invoiced > 0 ? round(onContract / invoiced * 100, 1) : 0,
+        offContractPct: invoiced > 0 ? round(offContract / invoiced * 100, 1) : 0,
+        leakage: round(overpayment + offContract),
+      },
+      overRows, offRows, byVendor,
+    };
+  }
+
   // Ingest a header+rows matrix (from CSV/XLSX) into AP. If `mapping` (from
   // Claude's mapcols) is supplied, use those 0-based column indices; otherwise
   // fall back to flexible header-name matching.
@@ -1301,6 +1360,7 @@
     apSavingsAll,
     apVendorSummary,
     apVendors,
+    priceCompliance,
     unmatchedApShops,
     remapApShop,
     fuzzyShop,
