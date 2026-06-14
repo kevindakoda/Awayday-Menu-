@@ -1371,6 +1371,72 @@
     return { rows: rows.length, total, byCalMonth: byCalMonth.map((x) => round(x)), categories, trend, peakMonth, minDate: dates[0] || "", maxDate: dates[dates.length - 1] || "" };
   }
 
+  /* ------------------------- Vendor master ------------------------- */
+  const VENDOR_CATEGORIES = [
+    "PMS & Operations Software", "Revenue Management", "Marketing & Advertising",
+    "Finance & Accounting", "Payments", "HR, Benefits & PEO", "Legal & Compliance",
+    "IT, Telecom & Hardware", "Smart Home & Access", "Cleaning & Housekeeping",
+    "Linen, Laundry & Supplies", "Supplies & Equipment", "Construction & Maintenance",
+    "Staffing & Consulting", "Data & Analytics", "Insurance", "Other",
+  ];
+  const VENDORS_DB = []; // managed vendor master, loaded from the database
+
+  function vendorMaster() { return VENDORS_DB.slice().sort((a, b) => a.name.localeCompare(b.name)); }
+  function vendorsByCategory() {
+    const m = {};
+    vendorMaster().forEach((v) => { (m[v.category || "Other"] = m[v.category || "Other"] || []).push(v); });
+    return m;
+  }
+  function nextVendorId() {
+    let n = VENDORS_DB.length + 1, id;
+    do { id = "VEN-" + String(n++).padStart(3, "0"); } while (VENDORS_DB.some((v) => v.id === id));
+    return id;
+  }
+  // Resolve any raw vendor string to a master vendor name (exact, alias, then
+  // fuzzy) so AP/contract spend consolidates onto one canonical vendor.
+  function canonicalVendor(raw) {
+    const r = normName(raw); if (!r) return null;
+    const exact = VENDORS_DB.find((v) => normName(v.name) === r || (v.aliases || []).some((a) => normName(a) === r));
+    if (exact) return exact.name;
+    let best = null, score = 0;
+    VENDORS_DB.forEach((v) => {
+      [v.name].concat(v.aliases || []).forEach((c) => { const s = similarity(r, normName(c)); if (s > score) { score = s; best = v; } });
+    });
+    return best && score >= 0.8 ? best.name : null;
+  }
+  // Add or merge a vendor (consolidates onto an existing name/alias match).
+  function addVendorRecord(f) {
+    const name = String(f.name || "").trim(); if (!name) return null;
+    const existing = VENDORS_DB.find((v) => normName(v.name) === normName(name) || (v.aliases || []).some((a) => normName(a) === normName(name)));
+    if (existing) {
+      if (f.category) existing.category = f.category;
+      if (f.notes) existing.notes = f.notes;
+      return existing;
+    }
+    const rec = { id: f.id || nextVendorId(), name, category: f.category || "Other", aliases: Array.isArray(f.aliases) ? f.aliases : [], notes: f.notes || "", status: f.status || "Active" };
+    VENDORS_DB.push(rec);
+    return rec;
+  }
+  function removeVendorRecord(id) { const i = VENDORS_DB.findIndex((v) => v.id === id); if (i >= 0) VENDORS_DB.splice(i, 1); }
+  // Bulk import vendors from a header+rows matrix (Vendor/Name, Category, Notes).
+  function ingestVendorRows(matrix) {
+    if (!matrix || !matrix.length) return { added: 0 };
+    const header = matrix[0].map((h) => String(h == null ? "" : h).trim().toLowerCase());
+    const find = (names) => { for (const n of names) { const i = header.findIndex((h) => h === n || h.includes(n)); if (i >= 0) return i; } return -1; };
+    const ni = find(["vendor", "name", "supplier", "payee"]);
+    const ci = find(["category", "type", "group"]);
+    const noi = find(["notes", "note", "description"]);
+    let added = 0;
+    for (let r = 1; r < matrix.length; r++) {
+      const row = matrix[r]; if (!row) continue;
+      const name = String((ni >= 0 ? row[ni] : row[0]) || "").trim();
+      if (!name) continue;
+      const cat = ci >= 0 ? String(row[ci] || "").trim() : "";
+      if (addVendorRecord({ name, category: cat || "Other", notes: noi >= 0 ? String(row[noi] || "").trim() : "" })) added++;
+    }
+    return { added };
+  }
+
   /* -------------------------------- Formatters -------------------------------- */
   const fmtMoney = (n, dec = 0) => "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec });
   const fmtMoneyShort = (n) => {
@@ -1407,6 +1473,15 @@
     apVendorSummary,
     apVendors,
     priceCompliance,
+    VENDOR_CATEGORIES,
+    VENDORS_DB,
+    vendorMaster,
+    vendorsByCategory,
+    canonicalVendor,
+    addVendorRecord,
+    removeVendorRecord,
+    ingestVendorRows,
+    nextVendorId,
     unmatchedApShops,
     remapApShop,
     fuzzyShop,
