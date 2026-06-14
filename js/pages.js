@@ -85,8 +85,16 @@
 
       return `
       <div class="page-head hero">
+        <div class="hero-eyebrow">⚓ Procurement Command Center</div>
         <h1>Procurement Savings Portal</h1>
-        <p>A centralized view of decentralized purchasing opportunities across products, SKUs, vendors, shops, and categories. Track old pricing, negotiated pricing, and savings opportunities by category, subcategory, vendor, and shop.</p>
+        <p>A centralized view of decentralized purchasing across products, SKUs, vendors, and shops — tracking baseline pricing, negotiated pricing, and the savings still on the table.</p>
+        <div class="hero-stats">
+          <div><div class="hs-num">${fmt.money(totals.savingsOpportunity)}</div><div class="hs-lbl">Identified savings</div></div>
+          <div class="hs-div"></div>
+          <div><div class="hs-num" style="color:#9fe0cb">${fmt.pct(totals.savingsPercentage)}</div><div class="hs-lbl">vs. baseline spend</div></div>
+          <div class="hs-div"></div>
+          <div><div class="hs-num">${fmt.num(opps.length)}</div><div class="hs-lbl">Open opportunities</div></div>
+        </div>
       </div>
 
       ${P.SKUS.length ? "" : `<div class="notice" style="margin-bottom:18px">📭 No data loaded yet. Head to the <a href="#/admin">Admin tab</a> to upload an Excel of products, OCR a price list, or load the sample dataset.</div>`}
@@ -111,7 +119,7 @@
       <div class="grid cols-4">${cats.map(U.categoryTile).join("")}</div>
 
       <div class="grid cols-2" style="margin-top:22px">
-        <div class="card"><h3 class="card-title">📊 Savings by Category</h3>${catBars}</div>
+        <div class="card"><h3 class="card-title">📊 Savings by Category</h3>${U.donut(cats.map((c) => ({ label: c.categoryName, value: c.savingsOpportunity, color: c.color })))}</div>
         <div class="card"><h3 class="card-title">🏬 Savings by Shop</h3>${shopBars}</div>
       </div>
 
