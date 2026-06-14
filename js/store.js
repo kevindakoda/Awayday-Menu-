@@ -113,13 +113,14 @@
   async function loadAll() {
     const c = client();
     if (!c) return { loaded: false };
-    const [brandsRes, skusRes, contractsRes, apRes, marketRes, snapRes] = await Promise.all([
+    const [brandsRes, skusRes, contractsRes, apRes, marketRes, snapRes, vendorRes] = await Promise.all([
       c.from("procurement_brands").select("*"),
       c.from("procurement_skus").select("*"),
       c.from("procurement_contracts").select("*"),
       c.from("procurement_ap_spend").select("*"),
       c.from("market_insights").select("*").order("week_of", { ascending: false }).limit(12),
       c.from("savings_snapshots").select("*").order("snapshot_date", { ascending: true }).limit(120),
+      c.from("procurement_vendors").select("*"),
     ]);
     if (brandsRes.error) throw brandsRes.error;
     if (skusRes.error) throw skusRes.error;
@@ -151,6 +152,14 @@
       if (!snapRes.error) (snapRes.data || []).forEach((r) => P.SNAPSHOTS.push({
         date: r.snapshot_date, identified: +r.identified || 0, approved: +r.approved || 0,
         implemented: +r.implemented || 0, baseline: +r.baseline || 0,
+      }));
+    }
+    // Vendor master (optional table).
+    if (P.VENDORS_DB) {
+      P.VENDORS_DB.length = 0;
+      if (!vendorRes.error) (vendorRes.data || []).forEach((r) => P.VENDORS_DB.push({
+        id: r.id, name: r.name, category: r.category || "Other",
+        aliases: Array.isArray(r.aliases) ? r.aliases : [], notes: r.notes || "", status: r.status || "Active",
       }));
     }
     return { loaded: true, brands: P.SHOPS.length, skus: P.SKUS.length, ap: (P.AP || []).length };
@@ -251,5 +260,24 @@
     return date;
   }
 
-  window.Store = { available, loadAll, pushAll, pushAp, saveMarket, saveSnapshot, upsertSku, deleteSku, upsertContract, deleteContract };
+  const vendorToRow = (v) => ({ id: v.id, name: v.name, category: v.category || "Other", aliases: v.aliases || [], notes: v.notes || "", status: v.status || "Active" });
+  async function saveVendor(v) {
+    const c = client(); if (!c) return;
+    const res = await c.from("procurement_vendors").upsert(vendorToRow(v), { onConflict: "id" });
+    if (res.error) throw res.error;
+  }
+  async function saveVendors(list) {
+    const c = client(); if (!c || !list || !list.length) return;
+    for (let i = 0; i < list.length; i += 500) {
+      const res = await c.from("procurement_vendors").upsert(list.slice(i, i + 500).map(vendorToRow), { onConflict: "id" });
+      if (res.error) throw res.error;
+    }
+  }
+  async function deleteVendor(id) {
+    const c = client(); if (!c) return;
+    const res = await c.from("procurement_vendors").delete().eq("id", id);
+    if (res.error) throw res.error;
+  }
+
+  window.Store = { available, loadAll, pushAll, pushAp, saveMarket, saveSnapshot, saveVendor, saveVendors, deleteVendor, upsertSku, deleteSku, upsertContract, deleteContract };
 })();

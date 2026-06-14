@@ -685,7 +685,63 @@
     title: "Vendors",
     crumb: "Vendors",
     render() {
-      const vendors = P.vendorsView();
+      const canEdit = State.role === "Procurement Admin";
+      const master = P.vendorMaster();
+      const cats = P.VENDOR_CATEGORIES;
+      // Spend per vendor from AP, consolidated onto canonical vendor names.
+      const spendBy = {};
+      (P.apVendorSummary ? P.apVendorSummary("All").byVendor : []).forEach((v) => {
+        const k = P.canonicalVendor(v.vendor) || v.vendor;
+        spendBy[k] = (spendBy[k] || 0) + v.spend;
+      });
+      const contractsCount = (n) => (P.contractsByVendor ? P.contractsByVendor(n).length : 0);
+      const withSpend = master.filter((v) => spendBy[v.name] > 0).length;
+      const withContracts = master.filter((v) => contractsCount(v.name)).length;
+      const byCat = P.vendorsByCategory();
+
+      const createForm = (canEdit && State.vendorCreate) ? `<div class="card" style="margin-bottom:16px;border-left:3px solid var(--teal)">
+          <h3 class="card-title">➕ Add a vendor</h3>
+          <div class="grid cols-4" style="gap:10px;align-items:end">
+            <div class="field" style="margin:0"><label>Vendor name</label><input type="text" id="nvName" placeholder="Acme Supply Co."></div>
+            <div class="field" style="margin:0"><label>Category</label><select id="nvCat" class="approve-select" style="max-width:none;width:100%">${cats.map((c) => `<option ${c === "Other" ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></div>
+            <div class="field" style="margin:0"><label>Notes</label><input type="text" id="nvNotes" placeholder="optional"></div>
+            <div style="display:flex;gap:8px"><button class="btn btn-primary btn-sm" id="nvSave">Save</button><button class="btn btn-outline btn-sm" id="nvCancel">Cancel</button></div>
+          </div>
+          <span class="cell-sub" id="nvMsg"></span>
+        </div>` : "";
+
+      const controls = `<div class="toolbar" style="margin-bottom:14px">
+          <div class="search"><span class="si">🔍</span><input type="text" id="vSearch" placeholder="Search vendors…"></div>
+          <select id="vCatFilter" class="approve-select" style="max-width:none">${["All"].concat(cats).map((c) => `<option>${esc(c)}</option>`).join("")}</select>
+          ${canEdit ? `<button class="btn btn-primary btn-sm" id="vCreate">➕ New vendor</button>
+            <input type="file" id="vFile" accept=".csv,.xlsx,.xls" style="display:none">
+            <button class="btn btn-outline btn-sm" id="vUpload">⬆ Upload list</button>
+            <button class="btn btn-outline btn-sm" id="vTpl">⬇ Template</button>
+            <span class="cell-sub" id="vMsg"></span>` : ""}
+        </div>`;
+
+      const rows = master.map((v) => `<tr data-vname="${esc((v.name + " " + (v.aliases || []).join(" ")).toLowerCase())}" data-vcat="${esc(v.category)}">
+          <td class="cell-strong">${esc(v.name)}${(v.aliases || []).length ? `<div class="cell-sub">incl. ${(v.aliases || []).map(esc).join(", ")}</div>` : ""}</td>
+          <td>${canEdit ? `<select class="approve-select" data-vcatsel="${esc(v.id)}" style="max-width:none">${cats.map((c) => `<option ${c === v.category ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>` : `<span class="badge navy">${esc(v.category)}</span>`}</td>
+          <td class="num">${spendBy[v.name] ? fmt.money(spendBy[v.name]) : "<span class='cell-sub'>—</span>"}</td>
+          <td>${contractsCount(v.name) ? `<span class="badge purple">${contractsCount(v.name)} contract</span>` : "<span class='cell-sub'>—</span>"}</td>
+          <td class="cell-sub">${esc(v.notes || "")}</td>
+          ${canEdit ? `<td><button class="btn btn-outline btn-sm" data-vdel="${esc(v.id)}" title="Remove">✕</button></td>` : ""}
+        </tr>`).join("");
+
+      const masterTable = `
+        <div class="page-head"><h1>🏷️ Vendors</h1><p>Consolidated, categorized vendor master — ${fmt.num(master.length)} vendors across ${fmt.num(Object.keys(byCat).length)} categories. Add or upload vendors and keep duplicate names merged.</p></div>
+        <div class="grid cols-4" style="margin-bottom:16px">
+          ${U.statCard({ label: "Vendors", value: fmt.num(master.length), accent: "navy", icon: "🏷️", iconBg: "var(--navy-50)" })}
+          ${U.statCard({ label: "Categories", value: fmt.num(Object.keys(byCat).length), accent: "blue", icon: "🗂️", iconBg: "var(--blue-bg)" })}
+          ${U.statCard({ label: "With Spend (AP)", value: fmt.num(withSpend), accent: "green", icon: "💵", iconBg: "var(--green-bg)" })}
+          ${U.statCard({ label: "With Contracts", value: fmt.num(withContracts), accent: "navy", icon: "📑", iconBg: "var(--navy-50)" })}
+        </div>
+        ${controls}${createForm}
+        <div class="table-wrap"><table class="data" style="min-width:760px"><thead><tr>
+          <th>Vendor</th><th>Category</th><th class="num">Spend (AP)</th><th>Contracts</th><th>Notes</th>${canEdit ? "<th></th>" : ""}
+        </tr></thead><tbody>${rows}</tbody></table></div>`;
+
       // Build the contract price book block for a vendor, grouped by category.
       const priceBook = (vendorName) => {
         const books = (P.contractsByVendor ? P.contractsByVendor(vendorName) : []);
@@ -708,52 +764,89 @@
         }).join("");
         return `<div style="margin-top:12px;border-top:1px solid var(--gray-100);padding-top:10px"><div class="cell-strong" style="font-size:12px;margin-bottom:2px">📒 Contract price book</div>${blocks}</div>`;
       };
-      const cards = vendors.map((v) => `
-        <div class="card">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start">
-            <div><h3 class="card-title" style="margin-bottom:3px">🏷️ ${esc(v.vendorName)}</h3>
-              <div class="card-sub">${esc(v.contractStatus)} · ${esc(v.pricingStatus)}</div></div>
-            ${v.savingsOpportunity > 0 ? U.savingsBadge(v.skuCount ? (v.savingsOpportunity / v.currentSpend * 100) : 0) : ""}
-          </div>
-          <div class="tag-cats" style="margin:6px 0 12px">${v.categoriesSupplied.map((c) => `<span class="badge navy">${esc(c)}</span>`).join("")}</div>
-          <div class="kv-grid">
-            <span class="k">Current spend</span><span class="v">${fmt.money(v.currentSpend)}</span>
-            <span class="k">Proposed spend</span><span class="v">${fmt.money(v.proposedSpend)}</span>
-            <span class="k">Savings opportunity</span><span class="v text-green">${fmt.money(v.savingsOpportunity)}</span>
-            <span class="k">SKUs (recommended)</span><span class="v">${v.skuCount}</span>
-            <span class="k">Shops served</span><span class="v">${v.shopsServed.length}</span>
-          </div>
-          <div class="cell-sub" style="margin-top:12px;border-top:1px solid var(--gray-100);padding-top:10px">${esc(v.notes)}</div>
-          ${priceBook(v.vendorName)}
-        </div>`).join("");
+      const bookVendors = master.filter((v) => contractsCount(v.name));
+      const books = bookVendors.length ? `<div class="section-title" style="margin-top:24px">📒 Vendor price books</div>
+        <div class="grid cols-2">${bookVendors.map((v) => `<div class="card"><h3 class="card-title">🏷️ ${esc(v.name)} <span class="badge navy">${esc(v.category)}</span></h3>${priceBook(v.name)}</div>`).join("")}</div>` : "";
 
-      // Current vs recommended comparison example — use the rolled-up Linens
-      // group, falling back to all SKUs so the panel never shows $0 / NaN%.
-      let linenCurrent = P.SKUS.filter((s) => s.categoryGroup === "Linens");
-      if (!linenCurrent.length) linenCurrent = P.SKUS;
-      const curSpend = P.round(linenCurrent.reduce((a, r) => a + r.currentAnnualSpend, 0));
-      const newSpend = P.round(linenCurrent.reduce((a, r) => a + r.newAnnualSpend, 0));
-      const sav = curSpend - newSpend;
+      return masterTable + books;
+    },
+    mount() {
+      const rerender = () => window.App.renderCurrent();
+      const search = document.getElementById("vSearch");
+      const catFilter = document.getElementById("vCatFilter");
+      const rows = Array.from(document.querySelectorAll("tr[data-vname]"));
+      const applyFilter = () => {
+        const q = ((search && search.value) || "").toLowerCase().trim();
+        const cat = catFilter ? catFilter.value : "All";
+        rows.forEach((r) => {
+          const okq = !q || r.getAttribute("data-vname").includes(q);
+          const okc = cat === "All" || r.getAttribute("data-vcat") === cat;
+          r.style.display = (okq && okc) ? "" : "none";
+        });
+      };
+      if (search) search.addEventListener("input", applyFilter);
+      if (catFilter) catFilter.addEventListener("change", applyFilter);
 
-      return `
-        <div class="page-head"><h1>Vendor View</h1><p>Compare current vendors against recommended national vendors across categories, spend, and shop coverage.</p></div>
-        <div class="card" style="margin-bottom:20px">
-          <h3 class="card-title">🔄 Current vs. Recommended (Linens example)</h3>
-          <div class="compare-grid">
-            <div class="compare-col current"><h4>Current Vendors</h4>
-              <div class="compare-row"><span class="k">Vendor</span><span class="v">Local / Regional Suppliers</span></div>
-              <div class="compare-row"><span class="k">Annual spend</span><span class="v">${fmt.money(curSpend)}</span></div>
-              <div class="compare-row"><span class="k">Contract</span><span class="v">Fragmented</span></div>
-            </div>
-            <div class="compare-arrow">➜</div>
-            <div class="compare-col recommended"><h4>Recommended Vendor</h4>
-              <div class="compare-row"><span class="k">Vendor</span><span class="v">Calderon Textiles</span></div>
-              <div class="compare-row"><span class="k">Annual spend</span><span class="v text-green">${fmt.money(newSpend)}</span></div>
-              <div class="compare-row"><span class="k">Savings</span><span class="v text-green">${fmt.money(sav)} (${fmt.pct(sav / curSpend * 100)})</span></div>
-            </div>
-          </div>
-        </div>
-        <div class="grid cols-3">${cards}</div>`;
+      const create = document.getElementById("vCreate");
+      if (create) create.addEventListener("click", () => { State.vendorCreate = !State.vendorCreate; rerender(); });
+      const nvCancel = document.getElementById("nvCancel");
+      if (nvCancel) nvCancel.addEventListener("click", () => { State.vendorCreate = false; rerender(); });
+      const nvSave = document.getElementById("nvSave");
+      if (nvSave) nvSave.addEventListener("click", async () => {
+        const name = (document.getElementById("nvName").value || "").trim();
+        const msg = document.getElementById("nvMsg");
+        if (!name) { msg.textContent = "Enter a vendor name."; return; }
+        const rec = P.addVendorRecord({ name, category: document.getElementById("nvCat").value, notes: (document.getElementById("nvNotes").value || "").trim() });
+        try { if (window.Store && window.Store.available()) await window.Store.saveVendor(rec); } catch (e) { msg.textContent = "⚠️ " + (e.message || e); return; }
+        State.vendorCreate = false; rerender();
+      });
+
+      document.querySelectorAll("[data-vcatsel]").forEach((sel) => sel.addEventListener("change", async () => {
+        const rec = (P.VENDORS_DB || []).find((v) => v.id === sel.getAttribute("data-vcatsel"));
+        if (!rec) return;
+        rec.category = sel.value;
+        const tr = sel.closest("tr"); if (tr) tr.setAttribute("data-vcat", rec.category);
+        try { if (window.Store && window.Store.available()) await window.Store.saveVendor(rec); } catch (_) { /* ignore */ }
+      }));
+
+      document.querySelectorAll("[data-vdel]").forEach((b) => b.addEventListener("click", async () => {
+        const rec = (P.VENDORS_DB || []).find((v) => v.id === b.getAttribute("data-vdel"));
+        if (!rec || !confirm("Remove vendor “" + rec.name + "”?")) return;
+        P.removeVendorRecord(rec.id);
+        try { if (window.Store && window.Store.available()) await window.Store.deleteVendor(rec.id); } catch (_) { /* ignore */ }
+        rerender();
+      }));
+
+      const tpl = document.getElementById("vTpl");
+      if (tpl) tpl.addEventListener("click", () => {
+        const blob = new Blob(["Vendor,Category,Notes\nAcme Supply Co.,Supplies & Equipment,Primary janitorial\n"], { type: "text/csv" });
+        const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "vendors_template.csv"; a.click();
+      });
+
+      const up = document.getElementById("vUpload");
+      const file = document.getElementById("vFile");
+      const msg = document.getElementById("vMsg");
+      async function readMatrix(f) {
+        const name = f.name.toLowerCase();
+        if (name.endsWith(".csv") || f.type === "text/csv") return P.parseCsv(await f.text());
+        const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
+        return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: "" });
+      }
+      if (up && file) {
+        up.addEventListener("click", () => file.click());
+        file.addEventListener("change", async () => {
+          const f = file.files && file.files[0]; if (!f) return;
+          msg.textContent = "Reading " + f.name + "…";
+          try {
+            const { added } = P.ingestVendorRows(await readMatrix(f));
+            if (!added) { msg.textContent = "⚠️ No vendor names found."; return; }
+            msg.textContent = `Saving ${added}…`;
+            if (window.Store && window.Store.available()) await window.Store.saveVendors(P.vendorMaster());
+            rerender();
+          } catch (e) { msg.textContent = "⚠️ " + (e.message || e); }
+          finally { file.value = ""; }
+        });
+      }
     },
   };
 
