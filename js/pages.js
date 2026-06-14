@@ -1441,6 +1441,12 @@
           setContractStatus(`✅ Price book for <b>${esc(res.vendorName)}</b> — ${res.itemCount} item(s) (session only). See the <a href="#/vendors">Vendors</a> page.`, "ok");
         }
         renderContractPreview(res.contract);
+        // Flag same-vendor duplicates introduced by this upload.
+        const dups = P.vendorDuplicates(res.vendorName);
+        if (dups.length) {
+          const el = document.getElementById("contractResult");
+          if (el) el.innerHTML += `<div class="notice" style="background:var(--red-bg);border-color:#f3c9c9;color:var(--red);margin-top:10px">🚩 ${dups.length} possible duplicate item(s) for <b>${esc(res.vendorName)}</b> — same SKU/product seen more than once (sometimes at different prices). Review on the <a href="#/quality">Data Quality</a> page.</div>`;
+        }
       };
       const contractInput = document.getElementById("contractFile");
       if (contractInput) contractInput.addEventListener("change", () => { processContract(contractInput.files[0]); contractInput.value = ""; });
@@ -2032,14 +2038,21 @@
     title: "Data Quality",
     crumb: "Data Quality",
     render() {
-      if (!(P.SKUS || []).length) return `<div class="page-head"><h1>Data Quality &amp; Audit</h1></div>${emptyState()}`;
+      if (!(P.SKUS || []).length && !(P.CONTRACTS || []).length) return `<div class="page-head"><h1>Data Quality &amp; Audit</h1></div>${emptyState()}`;
       const m = qualityMetrics();
       const c = m.dq.counts;
-      const issues = c.negative + c.missingPrice + c.missingQty + c.outliers + m.duplicates + m.missingCat + m.inconsistent.length;
+      const vdups = P.vendorDuplicates();
+      const issues = c.negative + c.missingPrice + c.missingQty + c.outliers + m.duplicates + m.missingCat + m.inconsistent.length + vdups.length;
       const incRows = m.inconsistent.slice(0, 15).map((x) => `<tr>
         <td class="cell-strong">${esc(x.name)}</td><td class="mono">${esc(x.code)}</td><td class="num">${x.shops}</td>
         <td class="num">${fmt.money(x.min, 2)}</td><td class="num">${fmt.money(x.max, 2)}</td>
         <td class="num text-green">${fmt.money(x.potential)}</td></tr>`).join("");
+      const vdupRows = vdups.slice(0, 15).map((d) => `<tr>
+        <td><span class="badge ${d.kind === "Same SKU" ? "red" : "amber"}">${esc(d.kind)}</span></td>
+        <td class="cell-strong">${esc(d.name)}${d.sku ? ` <span class="mono cell-sub">${esc(d.sku)}</span>` : ""}</td>
+        <td>${esc(d.vendor)}</td><td class="num">${d.count}×</td>
+        <td class="num">${d.spread > 0 ? `<span class="text-red">${fmt.money(d.min, 2)}–${fmt.money(d.max, 2)}</span>` : fmt.money(d.min, 2)}</td>
+        <td>${esc(Array.from(new Set(d.items.map((i) => i.source))).join(", "))}</td></tr>`).join("");
       return `
         <div class="page-head"><h1>🧹 Data Quality &amp; Audit <span class="badge navy" style="vertical-align:middle">DAI</span></h1>
           <p>Trustworthy data for accurate reporting. Scanned ${fmt.num(m.total)} SKUs for duplicates, gaps, outliers, and cross-shop price inconsistencies.</p></div>
@@ -2053,6 +2066,11 @@
           <h3 class="card-title">🔗 Same SKU, different price across shops — standardization opportunity</h3>
           <p class="cell-sub" style="margin-top:-4px">If every shop matched the lowest price already paid for the same item, the annualized upside is <b class="text-green">${fmt.money(m.consolidationTotal)}</b>.</p>
           ${m.inconsistent.length ? `<div class="table-wrap" style="border:none"><table class="data" style="min-width:680px"><thead><tr><th>Product</th><th>SKU</th><th class="num">Shops</th><th class="num">Min</th><th class="num">Max</th><th class="num">Upside</th></tr></thead><tbody>${incRows}</tbody></table></div>` : `<div class="cell-sub">No cross-shop price gaps detected.</div>`}
+        </div>
+        <div class="card" style="margin-bottom:16px;border-left:3px solid var(--red)">
+          <h3 class="card-title">🚩 Same vendor — duplicate SKU / product (review)</h3>
+          <p class="cell-sub" style="margin-top:-4px">The same item appears more than once from one vendor across the catalog and uploaded contracts/invoices — often at different prices. Review to dedupe or reconcile.</p>
+          ${vdups.length ? `<div class="table-wrap" style="border:none"><table class="data" style="min-width:720px"><thead><tr><th>Flag</th><th>Product</th><th>Vendor</th><th class="num">Seen</th><th class="num">Price range</th><th>Where</th></tr></thead><tbody>${vdupRows}</tbody></table></div>${vdups.length > 15 ? `<div class="cell-sub" style="margin-top:8px">+ ${vdups.length - 15} more…</div>` : ""}` : `<div class="cell-sub">✅ No same-vendor duplicates found.</div>`}
         </div>
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
@@ -2271,6 +2289,112 @@
           out.innerHTML = `<div class="notice" style="background:var(--amber-bg);border-color:#f3d9a8;color:var(--amber)">⚠️ ${esc(e.message || String(e))}</div>`;
         }
       });
+    },
+  };
+
+  /* ============== UoM CONVERTER (apples-to-apples) ============== */
+  PAGES.uom = {
+    title: "UoM Converter",
+    crumb: "UoM Converter",
+    render() {
+      const dims = window.UOM.dimensions();
+      const dimOpts = dims.map((d) => `<option value="${d.key}">${esc(d.label)}</option>`).join("");
+      const basis = window.UOM.CATEGORY_BASIS;
+      const basisChips = Object.keys(basis).map((c) => `<div class="uom-basis"><b>${esc(c)}</b><span>${esc(basis[c].note)}</span></div>`).join("");
+      return `
+        <div class="page-head"><h1>📐 UoM Converter</h1><p>Normalize any unit, pack, or case to a common base so you can benchmark and compare items <b>apples-to-apples</b> across linens, disposables, technology, and more.</p></div>
+
+        <div class="grid cols-2">
+          <div class="card">
+            <h3 class="card-title">🔁 Unit converter</h3>
+            <div class="grid cols-2" style="gap:10px;align-items:end;grid-template-columns:1fr 1fr">
+              <div class="field" style="margin:0"><label>Dimension</label><select id="uomDim">${dimOpts}</select></div>
+              <div class="field" style="margin:0"><label>Value</label><input id="uomVal" type="number" value="1" step="any"></div>
+              <div class="field" style="margin:0"><label>From</label><select id="uomFrom"></select></div>
+              <div class="field" style="margin:0"><label>To</label><select id="uomTo"></select></div>
+            </div>
+            <div id="uomResult" class="uom-result">—</div>
+          </div>
+
+          <div class="card">
+            <h3 class="card-title">🧮 Price per each</h3>
+            <p class="cell-sub" style="margin-top:-6px">Turn a case/pack price into a per-unit price. Pack accepts text like “case of 12”, “30 ct”, “dozen”, “(48)”.</p>
+            <div class="grid cols-2" style="gap:10px;align-items:end;grid-template-columns:1fr 1fr">
+              <div class="field" style="margin:0"><label>Pack price ($)</label><input id="ppPrice" type="number" step="any" placeholder="0.00"></div>
+              <div class="field" style="margin:0"><label>Pack / UoM</label><input id="ppPack" type="text" placeholder="case of 12"></div>
+            </div>
+            <div id="ppOut" class="uom-result">—</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:16px">
+          <h3 class="card-title">⚖️ Apples-to-apples compare</h3>
+          <p class="cell-sub" style="margin-top:-6px">Enter two quotes in any pack size — the tool reduces both to price-per-each and names the better deal.</p>
+          <div class="cmp-grid">
+            <div class="cmp-col">
+              <div class="cmp-h">Option A</div>
+              <div class="field"><label>Label</label><input id="aName" type="text" placeholder="Vendor A — bath towel"></div>
+              <div class="field"><label>Pack price ($)</label><input id="aPrice" type="number" step="any" placeholder="0.00"></div>
+              <div class="field" style="margin:0"><label>Pack / UoM</label><input id="aPack" type="text" placeholder="case of 24"></div>
+            </div>
+            <div class="cmp-col">
+              <div class="cmp-h">Option B</div>
+              <div class="field"><label>Label</label><input id="bName" type="text" placeholder="Vendor B — bath towel"></div>
+              <div class="field"><label>Pack price ($)</label><input id="bPrice" type="number" step="any" placeholder="0.00"></div>
+              <div class="field" style="margin:0"><label>Pack / UoM</label><input id="bPack" type="text" placeholder="dozen"></div>
+            </div>
+          </div>
+          <div id="cmpOut" class="uom-result" style="margin-top:14px">—</div>
+        </div>
+
+        <div class="card" style="margin-top:16px">
+          <h3 class="card-title">🗂️ Recommended comparison basis by category</h3>
+          <div class="uom-basis-grid">${basisChips}</div>
+        </div>`;
+    },
+    mount() {
+      const U = window.UOM;
+      const $ = (id) => document.getElementById(id);
+      const money = (n) => "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+
+      function fillUnits() {
+        const dim = $("uomDim").value;
+        const units = U.unitsForDimension(dim);
+        const opts = units.map((u) => `<option value="${esc(u)}">${esc(u)}</option>`).join("");
+        $("uomFrom").innerHTML = opts; $("uomTo").innerHTML = opts;
+        if (units[1]) $("uomTo").value = units[1];
+        convertNow();
+      }
+      function convertNow() {
+        const r = U.convert($("uomVal").value, $("uomFrom").value, $("uomTo").value);
+        $("uomResult").innerHTML = r == null ? "—"
+          : `<b>${(+$("uomVal").value || 0).toLocaleString()}</b> ${esc($("uomFrom").value)} = <b class="uom-big">${(+r.toFixed(6)).toLocaleString()}</b> ${esc($("uomTo").value)}`;
+      }
+      function priceNow() {
+        const p = +$("ppPrice").value, pack = $("ppPack").value;
+        if (!isFinite(p) || !p) { $("ppOut").innerHTML = "—"; return; }
+        const qty = U.parsePackQty(pack);
+        $("ppOut").innerHTML = `<b class="uom-big">${money(p / qty)}</b> / each <span class="cell-sub">(÷ ${qty} per ${esc(pack || "pack")})</span>`;
+      }
+      function compareNow() {
+        const a = { name: $("aName").value || "Option A", p: +$("aPrice").value, qty: U.parsePackQty($("aPack").value) };
+        const b = { name: $("bName").value || "Option B", p: +$("bPrice").value, qty: U.parsePackQty($("bPack").value) };
+        if (!a.p || !b.p) { $("cmpOut").innerHTML = "Enter both pack prices to compare."; return; }
+        a.each = a.p / a.qty; b.each = b.p / b.qty;
+        const win = a.each <= b.each ? a : b, lose = win === a ? b : a;
+        const pct = lose.each ? ((lose.each - win.each) / lose.each * 100) : 0;
+        $("cmpOut").innerHTML = `
+          <div class="cmp-res">
+            <div class="cmp-cell ${win === a ? "win" : ""}"><span>${esc(a.name)}</span><b>${money(a.each)}/ea</b><div class="cell-sub">${money(a.p)} ÷ ${a.qty}</div></div>
+            <div class="cmp-cell ${win === b ? "win" : ""}"><span>${esc(b.name)}</span><b>${money(b.each)}/ea</b><div class="cell-sub">${money(b.p)} ÷ ${b.qty}</div></div>
+          </div>
+          <div class="cmp-verdict">✅ <b>${esc(win.name)}</b> is cheaper by <b>${money(lose.each - win.each)}/each</b> (${pct.toFixed(1)}%)</div>`;
+      }
+      $("uomDim").addEventListener("change", fillUnits);
+      ["uomVal", "uomFrom", "uomTo"].forEach((id) => $(id).addEventListener("input", convertNow));
+      ["ppPrice", "ppPack"].forEach((id) => $(id).addEventListener("input", priceNow));
+      ["aName", "aPrice", "aPack", "bName", "bPrice", "bPack"].forEach((id) => $(id).addEventListener("input", compareNow));
+      fillUnits(); priceNow(); compareNow();
     },
   };
 

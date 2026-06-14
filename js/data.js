@@ -623,6 +623,52 @@
     return CONTRACTS.filter((c) => c.vendorName.toLowerCase() === n);
   }
 
+  // Flag the same SKU or same product appearing more than once FROM THE SAME
+  // VENDOR — across the catalog and uploaded contracts/invoices. These are the
+  // "review me" cases: a vendor double-listing a product (often at different
+  // prices). Optionally scope to one vendor. Returns flags sorted by the
+  // biggest price spread first.
+  function normName(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+  function vendorDuplicates(vendorFilter) {
+    const only = vendorFilter ? String(vendorFilter).toLowerCase() : null;
+    const map = {};
+    const add = (key, rec) => { (map[key] = map[key] || []).push(rec); };
+    // Catalog rows keyed by vendor + sku and vendor + product name.
+    SKUS.forEach((s) => {
+      const vendor = (s.currentVendor || "").trim();
+      if (!vendor || (only && vendor.toLowerCase() !== only)) return;
+      const v = vendor.toLowerCase();
+      const rec = { source: "Catalog", vendor, sku: s.sku || "", name: s.productName, shop: s.shop || "", price: +s.currentUnitPrice || 0, uom: s.unitOfMeasure, pack: s.packSize };
+      if (s.sku) add("SKU" + v + "" + s.sku.toLowerCase(), rec);
+      if (s.productName) add("NAME" + v + "" + normName(s.productName), rec);
+    });
+    // Contract / invoice price-book items keyed by vendor + name.
+    CONTRACTS.forEach((c) => {
+      const vendor = (c.vendorName || "").trim();
+      if (!vendor || (only && vendor.toLowerCase() !== only)) return;
+      const v = vendor.toLowerCase();
+      (c.items || []).forEach((it) => {
+        const rec = { source: "Contract: " + (c.title || c.id), vendor, sku: "", name: it.name, shop: "", price: +it.unitPrice || 0, uom: it.uom, pack: it.packSize };
+        if (it.name) add("NAME" + v + "" + normName(it.name), rec);
+      });
+    });
+    const flags = [];
+    Object.keys(map).forEach((k) => {
+      const grp = map[k];
+      if (grp.length < 2) return;
+      const prices = grp.map((g) => g.price).filter((p) => p > 0);
+      const min = prices.length ? Math.min(...prices) : 0;
+      const max = prices.length ? Math.max(...prices) : 0;
+      flags.push({
+        kind: k[0] === "S" ? "Same SKU" : "Same product",
+        vendor: grp[0].vendor, name: grp[0].name, sku: grp[0].sku,
+        count: grp.length, min, max, spread: round(max - min), items: grp,
+      });
+    });
+    flags.sort((a, b) => (b.spread - a.spread) || (b.count - a.count));
+    return flags;
+  }
+
   // Apply admin edits to an existing SKU and recompute spend/savings.
   function updateSku(id, fields) {
     const s = SKUS.find((x) => x.id === id);
@@ -1105,6 +1151,7 @@
     importContract,
     deleteContract,
     contractsByVendor,
+    vendorDuplicates,
     nextContractId,
     aggregate,
     categories,
