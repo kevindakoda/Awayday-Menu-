@@ -2274,18 +2274,85 @@
     },
   };
 
-  /* ============== MARKET INSIGHTS (weekly, web-sourced) ============== */
-  // Render the briefing text with simple emphasis on the CAPS section headers.
-  function renderBriefing(text) {
-    const lines = esc(text).split("\n");
-    return lines.map((ln) => {
-      const t = ln.trim();
-      if (/^(EXECUTIVE SUMMARY|\d+\.\s*)?(LINENS|DISPOSABLES|TARIFFS|TARIFFS &amp; TRADE|TECHNOLOGY|EXECUTIVE SUMMARY)\b/.test(t) && t === t.toUpperCase() && t.length < 60) {
-        return `<div style="font-weight:700;color:var(--navy,#1e3a5f);margin:14px 0 4px">${t}</div>`;
-      }
-      if (/^[-•]/.test(t)) return `<div style="margin:2px 0 2px 10px">${t}</div>`;
-      return ln ? `<div style="margin:4px 0">${ln}</div>` : "<div style='height:6px'></div>";
-    }).join("");
+  /* ============== MARKET INSIGHTS — newsletter ============== */
+  const MKT_SECTIONS = [
+    { key: "summary", re: /^(executive summary|summary|the wire|overview|market wrap)\b/i, name: "Executive Summary", icon: "📋", accent: "navy" },
+    { key: "linens", re: /\blinens?\b|cotton|textile/i, name: "Linens", icon: "🧺", accent: "teal" },
+    { key: "disposables", re: /\bdisposables?\b|paper|pulp|resin|plastic|packaging/i, name: "Disposables", icon: "🧻", accent: "sand" },
+    { key: "tariffs", re: /\btariffs?\b|trade|dut(y|ies)|import/i, name: "Tariffs & Trade", icon: "🏛️", accent: "red" },
+    { key: "technology", re: /\btechnolog|\btech\b|smart lock|iot|device|chip|semiconduct/i, name: "Technology", icon: "💡", accent: "sky" },
+  ];
+  function mktTrend(t) {
+    const s = (t || "").toLowerCase();
+    if (/(higher|rising|\brise|increas|climb|surg|jump|\bup\b|tighten|spik|elevat|gain|firmer|pressure)/.test(s)) return "up";
+    if (/(lower|falling|\bfall|declin|eas(e|ed|ing)|soften|\bsoft|drop|\bdown\b|cool|retreat|relief|weaker|slid)/.test(s)) return "down";
+    return "flat";
+  }
+  function mktTrendChip(dir) {
+    if (dir === "up") return `<span class="trend-chip up">▲ Cost rising</span>`;
+    if (dir === "down") return `<span class="trend-chip down">▼ Cost easing</span>`;
+    return `<span class="trend-chip flat">◆ Steady</span>`;
+  }
+  // Parse a free-text briefing into ordered sections.
+  function parseBriefing(text) {
+    const lines = String(text || "").split("\n").map((l) => l.trim());
+    const out = [];
+    let cur = null;
+    const headerOf = (l) => {
+      const stripped = l.replace(/^\d+[.)]\s*/, "").replace(/[*#:]/g, "").trim();
+      if (!stripped || stripped.length > 52) return null;
+      // Treat as a header only if it's short and matches a section keyword.
+      for (const s of MKT_SECTIONS) if (s.re.test(stripped)) return s;
+      return null;
+    };
+    lines.forEach((l) => {
+      if (!l) return;
+      const h = headerOf(l);
+      if (h) { cur = { ...h, trend: null, lead: "", points: [], take: "" }; out.push(cur); return; }
+      if (!cur) { cur = { ...MKT_SECTIONS[0], trend: null, lead: "", points: [], take: "" }; out.push(cur); }
+      if (/^what it means/i.test(l)) { cur.take = l.replace(/^what it means[^:]*:?\s*/i, ""); return; }
+      if (/^[-•*–]\s+/.test(l)) { cur.points.push(l.replace(/^[-•*–]\s+/, "")); return; }
+      if (!cur.lead && !cur.points.length) { cur.lead = l; cur.trend = mktTrend(l); return; }
+      cur.points.push(l);
+    });
+    // Merge duplicate summary blocks, keep section order Linens→Tech.
+    return out;
+  }
+  function mktSourcesHtml(sources) {
+    const list = (sources || []).slice(0, 14);
+    if (!list.length) return "";
+    return `<div class="news-sources"><div class="news-sources-h">Sources</div><ol>${list.map((s) => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc((s.title || s.url).slice(0, 70))}</a></li>`).join("")}</ol></div>`;
+  }
+  function renderNewsletter(issue) {
+    const secs = parseBriefing(issue.text);
+    const summary = secs.filter((s) => s.key === "summary");
+    const cats = secs.filter((s) => s.key !== "summary");
+    const issueDate = new Date(issue.weekOf + "T00:00:00");
+    const niceDate = isNaN(+issueDate) ? issue.weekOf : issueDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    const sumBlock = summary.length ? `<div class="news-summary">
+        <div class="news-summary-k">Executive summary</div>
+        ${summary.map((s) => `${s.lead ? `<p>${esc(s.lead)}</p>` : ""}${s.points.length ? `<ul class="news-points">${s.points.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}`).join("")}
+      </div>` : "";
+    const card = (s) => `<article class="news-card accent-${s.accent}">
+        <header class="news-card-head"><span class="news-ico">${s.icon}</span><h3>${esc(s.name)}</h3>${s.trend ? mktTrendChip(s.trend) : ""}</header>
+        ${s.lead ? `<p class="news-lead">${esc(s.lead)}</p>` : ""}
+        ${s.points.length ? `<ul class="news-points">${s.points.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}
+        ${s.take ? `<div class="news-take"><span>📌 What it means for buyers</span>${esc(s.take)}</div>` : ""}
+      </article>`;
+    const body = cats.length
+      ? `<div class="news-grid">${cats.map(card).join("")}</div>`
+      : `<div class="card"><div style="line-height:1.6;white-space:pre-wrap">${esc(issue.text)}</div></div>`;
+    return `<div class="newsletter">
+      <div class="news-masthead">
+        <div class="nm-row"><span class="nm-kicker">PROCUREMENT MARKET BRIEF</span><span class="nm-issue">Week of ${esc(niceDate)}</span></div>
+        <h1 class="nm-title">The Supply Wire</h1>
+        <p class="nm-tagline">Market shifts in linens, disposables, tariffs &amp; technology that move your cost basis.</p>
+        <div class="nm-meta"><span>🗓️ Generated ${esc(String(issue.asOf).slice(0, 10))}</span><span>🔗 ${(issue.sources || []).length} sources</span><span>🤖 AI-compiled from live web data</span></div>
+      </div>
+      ${sumBlock}
+      ${body}
+      ${mktSourcesHtml(issue.sources)}
+    </div>`;
   }
 
   PAGES.market = {
@@ -2294,55 +2361,50 @@
     render() {
       const canEdit = State.role === "Procurement Admin";
       const list = P.MARKET || [];
-      const latest = list[0];
-      const head = `<div class="page-head"><h1>🌐 Market Insights <span class="badge navy" style="vertical-align:middle">Weekly</span></h1>
-        <p>Web-sourced market shifts in <b>linens, disposables, tariffs, and technology</b> — so buying decisions stay ahead of cost moves.</p></div>`;
+      const issue = list.find((m) => m.id === State.marketIssue) || list[0];
       const genBtn = canEdit
-        ? `<button class="btn btn-primary btn-sm" id="mktGen">🔄 Generate this week's briefing</button>`
-        : `<span class="cell-sub">A Procurement Admin refreshes this weekly.</span>`;
-      const controls = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">${genBtn}<span class="cell-sub" id="mktMsg"></span></div>`;
+        ? `<button class="btn btn-primary btn-sm" id="mktGen">🔄 Generate this week's issue</button>`
+        : `<span class="cell-sub">A Procurement Admin publishes this weekly.</span>`;
+      const controls = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px">${genBtn}<span class="cell-sub" id="mktMsg"></span></div>`;
 
-      if (!latest) {
-        return `${head}${controls}<div class="card"><div class="cell-sub">No briefing yet. ${canEdit ? "Click “Generate this week’s briefing” — Claude will search the web and compile current market data (takes ~30–60s)." : "Check back once an admin generates the first one."}</div></div><div id="mktOut"></div>`;
+      if (!issue) {
+        return `<div class="page-head"><h1>🌐 Market Insights</h1><p>A weekly newsletter on the markets that move your costs.</p></div>${controls}
+          <div class="news-empty">
+            <div class="news-empty-mast"><span class="nm-kicker">PROCUREMENT MARKET BRIEF</span><h1 class="nm-title">The Supply Wire</h1><p class="nm-tagline">Linens · Disposables · Tariffs · Technology</p></div>
+            <p class="cell-sub" style="margin-top:14px">${canEdit ? "No issues yet. Click “Generate this week’s issue” — Claude searches the web and compiles a sourced briefing (~30–60s)." : "No issues published yet. Check back once an admin generates the first one."}</p>
+          </div>`;
       }
 
-      const srcs = (latest.sources || []).slice(0, 12).map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener" class="badge blue" style="text-decoration:none">${esc((s.title || s.url).slice(0, 48))}</a>`).join(" ");
-      const history = list.slice(1, 8).map((m) => `<button class="badge navy mkt-hist" data-id="${esc(m.id)}" style="cursor:pointer;border:none">${esc(m.weekOf)}</button>`).join(" ");
-      return `${head}${controls}
-        <div class="card" id="mktOut">
-          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-            <h3 class="card-title" style="margin:0">Week of ${esc(latest.weekOf)}</h3>
-            <span class="cell-sub">Generated ${esc(String(latest.asOf).slice(0, 10))}</span>
-          </div>
-          <div style="margin-top:10px;line-height:1.55">${renderBriefing(latest.text)}</div>
-          ${srcs ? `<div style="margin-top:14px"><div class="cell-sub" style="margin-bottom:6px">Sources</div><div class="tag-cats">${srcs}</div></div>` : ""}
-        </div>
-        ${history ? `<div class="card" style="margin-top:14px"><h3 class="card-title">📚 Past briefings</h3><div class="tag-cats">${history}</div></div>` : ""}`;
+      const archive = list.slice(0, 10).map((m) => `<button class="news-archive-item ${m.id === issue.id ? "active" : ""}" data-id="${esc(m.id)}">
+          <span class="nai-week">Week of ${esc(m.weekOf)}</span><span class="nai-meta">${(m.sources || []).length} sources</span></button>`).join("");
+
+      return `<div class="page-head"><h1>🌐 Market Insights</h1><p>Your weekly market newsletter — web-sourced shifts in linens, disposables, tariffs, and technology.</p></div>
+        ${controls}
+        <div class="news-layout">
+          <div class="news-main">${renderNewsletter(issue)}</div>
+          ${list.length > 1 ? `<aside class="news-aside"><div class="news-aside-h">📚 Past issues</div>${archive}</aside>` : ""}
+        </div>`;
     },
     mount() {
       const msg = document.getElementById("mktMsg");
       const gen = document.getElementById("mktGen");
       if (gen) gen.addEventListener("click", async () => {
         gen.disabled = true;
-        msg.textContent = "🌐 Searching the web and compiling market data… (this can take ~30–60s)";
+        msg.textContent = "🌐 Searching the web and compiling this week's issue… (~30–60s)";
         try {
           const brief = await window.AI.market();
           if (!brief.text) throw new Error("No briefing was returned.");
           if (window.Store && window.Store.available()) await window.Store.saveMarket(brief);
+          State.marketIssue = null; // snap to newest
           window.App.renderCurrent();
         } catch (e) {
           msg.textContent = "⚠️ " + (e.message || e);
           gen.disabled = false;
         }
       });
-      document.querySelectorAll(".mkt-hist").forEach((b) => b.addEventListener("click", () => {
-        const m = (P.MARKET || []).find((x) => x.id === b.getAttribute("data-id"));
-        if (!m) return;
-        const out = document.getElementById("mktOut");
-        const srcs = (m.sources || []).slice(0, 12).map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener" class="badge blue" style="text-decoration:none">${esc((s.title || s.url).slice(0, 48))}</a>`).join(" ");
-        out.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h3 class="card-title" style="margin:0">Week of ${esc(m.weekOf)}</h3><span class="cell-sub">Generated ${esc(String(m.asOf).slice(0, 10))}</span></div>
-          <div style="margin-top:10px;line-height:1.55">${renderBriefing(m.text)}</div>
-          ${srcs ? `<div style="margin-top:14px"><div class="cell-sub" style="margin-bottom:6px">Sources</div><div class="tag-cats">${srcs}</div></div>` : ""}`;
+      document.querySelectorAll(".news-archive-item").forEach((b) => b.addEventListener("click", () => {
+        State.marketIssue = b.getAttribute("data-id");
+        window.App.renderCurrent();
         window.scrollTo(0, 0);
       }));
     },
