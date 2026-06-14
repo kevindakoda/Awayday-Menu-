@@ -2691,6 +2691,86 @@
     },
   };
 
+  /* ============== PRICE COMPLIANCE (invoice vs contract) ============== */
+  PAGES.compliance = {
+    title: "Price Compliance",
+    crumb: "Price Compliance",
+    render() {
+      const head = `<div class="page-head"><h1>⚖️ Price Compliance <span class="badge navy" style="vertical-align:middle">Invoice vs. contract</span></h1>
+        <p>Are you actually paying contracted prices? This compares every invoiced line to the vendor's contract and flags <b>overpayments</b> and <b>off-contract spend</b> — recoverable savings hiding in plain sight.</p></div>`;
+      const c = P.priceCompliance();
+      if (!c.hasAp) {
+        return `${head}<div class="notice">🧾 Upload vendor sales reports / invoices on <a href="#/vendorspend">Vendor Spend</a> first — that's the "what you paid" side.</div>`;
+      }
+      if (!c.hasContracts) {
+        return `${head}<div class="notice" style="background:var(--amber-bg);border-color:#f3d9a8;color:var(--amber)">📄 No contracts on file. Upload vendor contracts / rate sheets in <a href="#/admin">Admin</a> so there's a negotiated price to compare invoices against.</div>`;
+      }
+      const t = c.totals;
+      const overRows = c.overRows.slice(0, 15).map((r) => `<tr>
+          <td class="cell-strong">${esc(r.item)}${r.sku ? ` <span class="mono cell-sub">${esc(r.sku)}</span>` : ""}<div class="cell-sub">${esc(r.vendor)}${r.shop ? " · " + esc(r.shop) : ""}</div></td>
+          <td class="num">${fmt.num(r.qty)}</td>
+          <td class="num text-red">${fmt.money(r.actualUnit, 2)}</td>
+          <td class="num">${fmt.money(r.contractUnit, 2)}</td>
+          <td class="num cell-strong text-red">${fmt.money(r.over)}</td>
+          <td class="cell-sub">${esc(r.date || "")}</td></tr>`).join("");
+      const offRows = c.offRows.slice(0, 12).map((r) => `<tr>
+          <td class="cell-strong">${esc(r.item)}${r.sku ? ` <span class="mono cell-sub">${esc(r.sku)}</span>` : ""}</td>
+          <td>${esc(r.vendor)}</td><td>${esc(r.shop || "—")}</td>
+          <td class="num">${fmt.money(r.amount)}</td><td class="cell-sub">${esc(r.date || "")}</td></tr>`).join("");
+      const vendRows = c.byVendor.slice(0, 10).map((v) => `<tr>
+          <td class="cell-strong">${esc(v.vendor)}</td>
+          <td class="num">${fmt.money(v.invoiced)}</td>
+          <td class="num ${v.overpayment ? "text-red" : ""}">${fmt.money(v.overpayment)}</td>
+          <td class="num ${v.offContract ? "text-amber" : ""}">${fmt.money(v.offContract)}</td></tr>`).join("");
+
+      return `${head}
+        <div class="grid cols-4" style="margin-bottom:16px">
+          ${U.statCard({ label: "Recoverable Leakage", value: fmt.money(t.leakage), delta: "overpay + off-contract", deltaClass: "text-red", accent: "red", icon: "💸", iconBg: "var(--red-bg)" })}
+          ${U.statCard({ label: "Overpayment", value: fmt.money(t.overpayment), delta: c.overRows.length + " lines above contract", deltaClass: "text-red", accent: "amber", icon: "⚠️", iconBg: "var(--amber-bg)" })}
+          ${U.statCard({ label: "Off-Contract Spend", value: fmt.money(t.offContract), delta: fmt.pct(t.offContractPct) + " of invoiced", deltaClass: "text-amber", accent: "navy", icon: "🧾", iconBg: "var(--navy-50)" })}
+          ${U.statCard({ label: "On-Contract", value: fmt.pct(t.onContractPct), delta: fmt.num(t.checked) + " lines price-checked", deltaClass: "text-muted", accent: "green", icon: "✅", iconBg: "var(--green-bg)" })}
+        </div>
+        <div class="card" style="margin-bottom:16px;border-left:3px solid var(--red)">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <h3 class="card-title" style="margin:0">⚠️ Overpayments — paid above contract</h3>
+            <button class="btn btn-primary btn-sm" id="compBrief">🧠 Summarize &amp; recommend</button>
+          </div>
+          <div id="compOut" style="margin:8px 0 4px"></div>
+          ${c.overRows.length ? `<div class="table-wrap" style="border:none"><table class="data" style="min-width:720px"><thead><tr><th>Item / vendor</th><th class="num">Qty</th><th class="num">Paid/ea</th><th class="num">Contract/ea</th><th class="num">Overpaid</th><th>Date</th></tr></thead><tbody>${overRows}</tbody></table></div>${c.overRows.length > 15 ? `<div class="cell-sub" style="margin-top:8px">+ ${c.overRows.length - 15} more…</div>` : ""}` : `<div class="cell-sub">✅ No lines invoiced above contract price.</div>`}
+        </div>
+        <div class="grid cols-2">
+          <div class="card"><h3 class="card-title">🧾 Off-contract (maverick) spend</h3>
+            ${c.offRows.length ? `<div class="table-wrap" style="border:none"><table class="data" style="min-width:420px"><thead><tr><th>Item</th><th>Vendor</th><th>Shop</th><th class="num">Spend</th><th>Date</th></tr></thead><tbody>${offRows}</tbody></table></div>` : `<div class="cell-sub">✅ Everything maps to a contract.</div>`}
+          </div>
+          <div class="card"><h3 class="card-title">🤝 Leakage by vendor</h3>
+            <div class="table-wrap" style="border:none"><table class="data" style="min-width:420px"><thead><tr><th>Vendor</th><th class="num">Invoiced</th><th class="num">Overpay</th><th class="num">Off-contract</th></tr></thead><tbody>${vendRows}</tbody></table></div>
+          </div>
+        </div>
+        <div class="cell-sub" style="margin-top:12px">Lines are matched to contract items by vendor + fuzzy product name; unit prices assume the same pack basis. Use the <a href="#/uom">UoM Converter</a> for pack normalization.</div>`;
+    },
+    mount() {
+      const btn = document.getElementById("compBrief");
+      if (!btn) return;
+      btn.addEventListener("click", async () => {
+        const c = P.priceCompliance();
+        const out = document.getElementById("compOut");
+        out.innerHTML = `<div class="notice">⏳ Analyzing price compliance…</div>`;
+        const ctx = {
+          totals: c.totals,
+          topOverpayments: c.overRows.slice(0, 15).map((r) => ({ item: r.item, vendor: r.vendor, paidEach: r.actualUnit, contractEach: r.contractUnit, overpaid: r.over })),
+          topOffContract: c.offRows.slice(0, 12).map((r) => ({ item: r.item, vendor: r.vendor, spend: r.amount })),
+          byVendor: c.byVendor.slice(0, 10),
+        };
+        const q = "Act as a procurement recovery analyst. From this price-compliance data, summarize total recoverable leakage, name the worst vendors and items for overpayment and off-contract spend, and give 3 concrete recovery actions (credit-back requests, move maverick spend onto contract, renegotiate). About 150 words.";
+        try {
+          out.innerHTML = `<div class="ai-answer">${esc(await window.AI.ask(q, ctx) || "No summary returned.").replace(/\n/g, "<br>")}</div>`;
+        } catch (e) {
+          out.innerHTML = `<div class="notice" style="background:var(--amber-bg);border-color:#f3d9a8;color:var(--amber)">⚠️ ${esc(e.message || String(e))}</div>`;
+        }
+      });
+    },
+  };
+
   /* ============== VENDOR SPEND (vendor sales reports) ============== */
   PAGES.vendorspend = {
     title: "Vendor Spend",
