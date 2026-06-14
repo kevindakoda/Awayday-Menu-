@@ -1303,6 +1303,38 @@
     };
   }
 
+  // Savings realization snapshots (populated from the database).
+  const SNAPSHOTS = [];
+
+  // Current savings funnel: identified -> approved -> implemented (realized),
+  // derived from each SKU's positive annual savings and implementation status.
+  function savingsFunnel() {
+    const pos = (s) => Math.max(0, +s.annualSavings || 0);
+    let identified = 0, inReview = 0, approved = 0, realized = 0;
+    const catR = {}, shopR = {};
+    SKUS.forEach((s) => {
+      const v = pos(s); if (v <= 0) return;
+      identified += v;
+      const st = s.implementationStatus;
+      if (st === "In Review") inReview += v;
+      if (st === "Approved" || st === "Implemented") approved += v;
+      if (st === "Implemented") {
+        realized += v;
+        const g = s.categoryGroup || "Other"; catR[g] = (catR[g] || 0) + v;
+        const sh = s.shop || s.shopCode || "—"; shopR[sh] = (shopR[sh] || 0) + v;
+      }
+    });
+    return {
+      identified: round(identified), inReview: round(inReview), approved: round(approved), realized: round(realized),
+      remaining: round(identified - realized),
+      capturedPct: identified > 0 ? round(realized / identified * 100, 1) : 0,
+      approvedPct: identified > 0 ? round(approved / identified * 100, 1) : 0,
+      byCategory: Object.keys(catR).map((k) => ({ name: k, value: round(catR[k]) })).sort((a, b) => b.value - a.value),
+      byShop: Object.keys(shopR).map((k) => ({ name: k, value: round(shopR[k]) })).sort((a, b) => b.value - a.value),
+      baseline: round(aggregate(SKUS).baselineSpend),
+    };
+  }
+
   // Weekly market-intelligence briefings (populated from the database).
   const MARKET = [];
   // Monday (ISO week start) of the date as YYYY-MM-DD — the briefing's week key.
@@ -1380,6 +1412,8 @@
     fuzzyShop,
     apClear,
     MARKET,
+    SNAPSHOTS,
+    savingsFunnel,
     weekOf,
     importContract,
     deleteContract,

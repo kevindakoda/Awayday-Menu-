@@ -113,12 +113,13 @@
   async function loadAll() {
     const c = client();
     if (!c) return { loaded: false };
-    const [brandsRes, skusRes, contractsRes, apRes, marketRes] = await Promise.all([
+    const [brandsRes, skusRes, contractsRes, apRes, marketRes, snapRes] = await Promise.all([
       c.from("procurement_brands").select("*"),
       c.from("procurement_skus").select("*"),
       c.from("procurement_contracts").select("*"),
       c.from("procurement_ap_spend").select("*"),
       c.from("market_insights").select("*").order("week_of", { ascending: false }).limit(12),
+      c.from("savings_snapshots").select("*").order("snapshot_date", { ascending: true }).limit(120),
     ]);
     if (brandsRes.error) throw brandsRes.error;
     if (skusRes.error) throw skusRes.error;
@@ -142,6 +143,14 @@
       if (!marketRes.error) (marketRes.data || []).forEach((r) => P.MARKET.push({
         id: r.id, weekOf: r.week_of, asOf: r.as_of, text: r.text || "",
         sources: Array.isArray(r.sources) ? r.sources : [],
+      }));
+    }
+    // Savings snapshots (optional table).
+    if (P.SNAPSHOTS) {
+      P.SNAPSHOTS.length = 0;
+      if (!snapRes.error) (snapRes.data || []).forEach((r) => P.SNAPSHOTS.push({
+        date: r.snapshot_date, identified: +r.identified || 0, approved: +r.approved || 0,
+        implemented: +r.implemented || 0, baseline: +r.baseline || 0,
       }));
     }
     return { loaded: true, brands: P.SHOPS.length, skus: P.SKUS.length, ap: (P.AP || []).length };
@@ -224,5 +233,23 @@
     }
   }
 
-  window.Store = { available, loadAll, pushAll, pushAp, saveMarket, upsertSku, deleteSku, upsertContract, deleteContract };
+  // Capture today's savings funnel as a snapshot (idempotent per day).
+  async function saveSnapshot() {
+    const c = client();
+    if (!c) return null;
+    const f = P.savingsFunnel();
+    const date = new Date().toISOString().slice(0, 10);
+    const row = { snapshot_date: date, identified: f.identified, approved: f.approved, implemented: f.realized, baseline: f.baseline };
+    const res = await c.from("savings_snapshots").upsert(row, { onConflict: "snapshot_date" });
+    if (res.error) throw res.error;
+    if (P.SNAPSHOTS) {
+      const entry = { date, identified: f.identified, approved: f.approved, implemented: f.realized, baseline: f.baseline };
+      const i = P.SNAPSHOTS.findIndex((s) => s.date === date);
+      if (i >= 0) P.SNAPSHOTS[i] = entry; else P.SNAPSHOTS.push(entry);
+      P.SNAPSHOTS.sort((a, b) => (a.date < b.date ? -1 : 1));
+    }
+    return date;
+  }
+
+  window.Store = { available, loadAll, pushAll, pushAp, saveMarket, saveSnapshot, upsertSku, deleteSku, upsertContract, deleteContract };
 })();
