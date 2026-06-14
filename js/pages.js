@@ -2709,10 +2709,16 @@
       const overRows = c.overRows.slice(0, 15).map((r) => `<tr>
           <td class="cell-strong">${esc(r.item)}${r.sku ? ` <span class="mono cell-sub">${esc(r.sku)}</span>` : ""}<div class="cell-sub">${esc(r.vendor)}${r.shop ? " · " + esc(r.shop) : ""}</div></td>
           <td class="num">${fmt.num(r.qty)}</td>
-          <td class="num text-red">${fmt.money(r.actualUnit, 2)}</td>
-          <td class="num">${fmt.money(r.contractUnit, 2)}</td>
+          <td class="num text-red">${fmt.money(r.paidEach, 2)}</td>
+          <td class="num">${fmt.money(r.contractEach, 2)}</td>
           <td class="num cell-strong text-red">${fmt.money(r.over)}</td>
           <td class="cell-sub">${esc(r.date || "")}</td></tr>`).join("");
+      const uomRows = c.uomRows.slice(0, 12).map((r) => `<tr>
+          <td class="cell-strong">${esc(r.item)}${r.sku ? ` <span class="mono cell-sub">${esc(r.sku)}</span>` : ""}<div class="cell-sub">${esc(r.vendor)}</div></td>
+          <td class="num">${fmt.money(r.paidEach, 2)}</td>
+          <td class="num">${fmt.money(r.contractEach, 2)}</td>
+          <td class="num text-amber cell-strong">${r.ratio}×</td>
+          <td class="cell-sub">vs “${esc(r.match)}”</td></tr>`).join("");
       const offRows = c.offRows.slice(0, 12).map((r) => `<tr>
           <td class="cell-strong">${esc(r.item)}${r.sku ? ` <span class="mono cell-sub">${esc(r.sku)}</span>` : ""}</td>
           <td>${esc(r.vendor)}</td><td>${esc(r.shop || "—")}</td>
@@ -2728,16 +2734,21 @@
           ${U.statCard({ label: "Recoverable Leakage", value: fmt.money(t.leakage), delta: "overpay + off-contract", deltaClass: "text-red", accent: "red", icon: "💸", iconBg: "var(--red-bg)" })}
           ${U.statCard({ label: "Overpayment", value: fmt.money(t.overpayment), delta: c.overRows.length + " lines above contract", deltaClass: "text-red", accent: "amber", icon: "⚠️", iconBg: "var(--amber-bg)" })}
           ${U.statCard({ label: "Off-Contract Spend", value: fmt.money(t.offContract), delta: fmt.pct(t.offContractPct) + " of invoiced", deltaClass: "text-amber", accent: "navy", icon: "🧾", iconBg: "var(--navy-50)" })}
-          ${U.statCard({ label: "On-Contract", value: fmt.pct(t.onContractPct), delta: fmt.num(t.checked) + " lines price-checked", deltaClass: "text-muted", accent: "green", icon: "✅", iconBg: "var(--green-bg)" })}
+          ${U.statCard({ label: "On-Contract", value: fmt.pct(t.onContractPct), delta: fmt.num(t.checked) + " checked · " + fmt.num(t.uomFlagged) + " UoM flags", deltaClass: "text-muted", accent: "green", icon: "✅", iconBg: "var(--green-bg)" })}
         </div>
         <div class="card" style="margin-bottom:16px;border-left:3px solid var(--red)">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-            <h3 class="card-title" style="margin:0">⚠️ Overpayments — paid above contract</h3>
+            <h3 class="card-title" style="margin:0">⚠️ Overpayments — paid above contract <span class="cell-sub">(per each)</span></h3>
             <button class="btn btn-primary btn-sm" id="compBrief">🧠 Summarize &amp; recommend</button>
           </div>
           <div id="compOut" style="margin:8px 0 4px"></div>
           ${c.overRows.length ? `<div class="table-wrap" style="border:none"><table class="data" style="min-width:720px"><thead><tr><th>Item / vendor</th><th class="num">Qty</th><th class="num">Paid/ea</th><th class="num">Contract/ea</th><th class="num">Overpaid</th><th>Date</th></tr></thead><tbody>${overRows}</tbody></table></div>${c.overRows.length > 15 ? `<div class="cell-sub" style="margin-top:8px">+ ${c.overRows.length - 15} more…</div>` : ""}` : `<div class="cell-sub">✅ No lines invoiced above contract price.</div>`}
         </div>
+        ${c.uomRows.length ? `<div class="card" style="margin-bottom:16px;border-left:3px solid var(--sand)">
+          <h3 class="card-title">📐 Likely UoM mismatches — review (${c.uomRows.length})</h3>
+          <p class="cell-sub" style="margin-top:-4px">These per-each prices differ by more than ${"6"}× vs contract — almost always a pack/case vs each mismatch, not a real overpayment. They're excluded from the overpayment total until reconciled. Use the <a href="#/uom">UoM Converter</a> to confirm pack sizes.</p>
+          <div class="table-wrap" style="border:none"><table class="data" style="min-width:560px"><thead><tr><th>Item / vendor</th><th class="num">Paid/ea</th><th class="num">Contract/ea</th><th class="num">Ratio</th><th>Matched to</th></tr></thead><tbody>${uomRows}</tbody></table></div>
+        </div>` : ""}
         <div class="grid cols-2">
           <div class="card"><h3 class="card-title">🧾 Off-contract (maverick) spend</h3>
             ${c.offRows.length ? `<div class="table-wrap" style="border:none"><table class="data" style="min-width:420px"><thead><tr><th>Item</th><th>Vendor</th><th>Shop</th><th class="num">Spend</th><th>Date</th></tr></thead><tbody>${offRows}</tbody></table></div>` : `<div class="cell-sub">✅ Everything maps to a contract.</div>`}
@@ -2746,7 +2757,7 @@
             <div class="table-wrap" style="border:none"><table class="data" style="min-width:420px"><thead><tr><th>Vendor</th><th class="num">Invoiced</th><th class="num">Overpay</th><th class="num">Off-contract</th></tr></thead><tbody>${vendRows}</tbody></table></div>
           </div>
         </div>
-        <div class="cell-sub" style="margin-top:12px">Lines are matched to contract items by vendor + fuzzy product name; unit prices assume the same pack basis. Use the <a href="#/uom">UoM Converter</a> for pack normalization.</div>`;
+        <div class="cell-sub" style="margin-top:12px">Every comparison is normalized to <b>price per each</b> (pack/case sizes divided out automatically). Lines are matched to contract items by vendor + fuzzy product name. Implausible ratios are quarantined as likely UoM issues above.</div>`;
     },
     mount() {
       const btn = document.getElementById("compBrief");
@@ -2757,7 +2768,7 @@
         out.innerHTML = `<div class="notice">⏳ Analyzing price compliance…</div>`;
         const ctx = {
           totals: c.totals,
-          topOverpayments: c.overRows.slice(0, 15).map((r) => ({ item: r.item, vendor: r.vendor, paidEach: r.actualUnit, contractEach: r.contractUnit, overpaid: r.over })),
+          topOverpayments: c.overRows.slice(0, 15).map((r) => ({ item: r.item, vendor: r.vendor, paidEach: r.paidEach, contractEach: r.contractEach, overpaid: r.over })),
           topOffContract: c.offRows.slice(0, 12).map((r) => ({ item: r.item, vendor: r.vendor, spend: r.amount })),
           byVendor: c.byVendor.slice(0, 10),
         };
