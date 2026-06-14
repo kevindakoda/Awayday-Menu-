@@ -2348,6 +2348,7 @@
         <h1 class="nm-title">The Supply Wire</h1>
         <p class="nm-tagline">Market shifts in linens, disposables, tariffs &amp; technology that move your cost basis.</p>
         <div class="nm-meta"><span>🗓️ Generated ${esc(String(issue.asOf).slice(0, 10))}</span><span>🔗 ${(issue.sources || []).length} sources</span><span>🤖 AI-compiled from live web data</span></div>
+        <div class="nm-actions"><button class="news-act" id="mktCopy">📋 Copy</button><button class="news-act" id="mktEmail">📧 Email team</button><button class="news-act" id="mktPrint">🖨️ Print</button></div>
       </div>
       ${sumBlock}
       ${body}
@@ -2407,6 +2408,26 @@
         window.App.renderCurrent();
         window.scrollTo(0, 0);
       }));
+
+      // Issue actions: copy / email / print.
+      const list = P.MARKET || [];
+      const issue = list.find((m) => m.id === State.marketIssue) || list[0];
+      if (issue) {
+        const heading = `The Supply Wire — Procurement Market Brief — Week of ${issue.weekOf}`;
+        const copyBtn = document.getElementById("mktCopy");
+        if (copyBtn) copyBtn.addEventListener("click", async () => {
+          try { await navigator.clipboard.writeText(`${heading}\n\n${issue.text}`); copyBtn.textContent = "✅ Copied"; setTimeout(() => { copyBtn.textContent = "📋 Copy"; }, 1500); }
+          catch (_) { copyBtn.textContent = "⚠️ Copy failed"; }
+        });
+        const emailBtn = document.getElementById("mktEmail");
+        if (emailBtn) emailBtn.addEventListener("click", () => {
+          const link = location.href.split("#")[0] + "#/market";
+          const body = `${issue.text}\n\nRead it in the portal: ${link}`.slice(0, 1800);
+          window.location.href = `mailto:?subject=${encodeURIComponent(heading)}&body=${encodeURIComponent(body)}`;
+        });
+        const printBtn = document.getElementById("mktPrint");
+        if (printBtn) printBtn.addEventListener("click", () => window.print());
+      }
     },
   };
 

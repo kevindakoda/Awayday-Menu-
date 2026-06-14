@@ -599,3 +599,13 @@ input, select, textarea { font-family: inherit; color: var(--ink); }
 .news-empty { background:#fff; border:1px solid var(--gray-200); border-radius: 18px; box-shadow: var(--shadow); padding: 0; overflow:hidden; text-align:center; }
 .news-empty-mast { padding: 34px 20px 24px; color:#fff; background: linear-gradient(120deg, var(--navy-900), var(--navy) 55%, var(--teal-700)); }
 .news-empty .cell-sub { padding: 0 24px 26px; display:block; }
+
+/* Newsletter masthead actions */
+.nm-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; position:relative; z-index:1; }
+.news-act { font-size:12px; font-weight:600; color:#eaf4fb; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.22); border-radius:9px; padding:6px 12px; transition: background .12s, transform .12s; }
+.news-act:hover { background:rgba(255,255,255,.22); transform:translateY(-1px); }
+@media print {
+  .news-aside, .nm-actions, #mktGen, #mktMsg { display:none !important; }
+  .news-layout { grid-template-columns:1fr !important; }
+  .newsletter, .news-card, .news-summary, .news-sources { box-shadow:none !important; }
+}
