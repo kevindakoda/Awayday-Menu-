@@ -2691,6 +2691,69 @@
     },
   };
 
+  /* ============== SAVINGS REALIZATION (found vs captured) ============== */
+  PAGES.realization = {
+    title: "Savings Realization",
+    crumb: "Savings Realization",
+    render() {
+      const canEdit = State.role === "Procurement Admin";
+      const head = `<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div><h1>🎯 Savings Realization</h1><p>How much of the identified savings is actually being captured — from opportunity to approved to implemented.</p></div>
+          ${canEdit ? `<button class="btn btn-outline btn-sm" id="snapBtn">📸 Capture snapshot</button>` : ""}
+        </div>`;
+      if (!(P.SKUS || []).length) return `${head}${emptyState("Load your catalog and set implementation statuses to track realization.")}`;
+      const f = P.savingsFunnel();
+      const snaps = (P.SNAPSHOTS || []).slice(-12);
+
+      const bar = (label, val, color) => {
+        const pct = f.identified > 0 ? Math.max(2, (val / f.identified) * 100) : 0;
+        return `<div class="bar-row"><div class="bl">${label}</div>
+          <div class="hbar"><span style="width:${pct}%;background:${color}"></span></div>
+          <div class="bv">${fmt.moneyShort(val)} · ${f.identified > 0 ? Math.round(val / f.identified * 100) : 0}%</div></div>`;
+      };
+      const maxSnap = mx(snaps.map((s) => s.implemented));
+      const trend = snaps.length > 1
+        ? snaps.map((s) => U.hbar(s.date, s.implemented, maxSnap, fmt.moneyShort(s.implemented))).join("")
+        : `<div class="cell-sub">Trend builds as snapshots accrue — captured automatically each day you visit, or hit “Capture snapshot”.</div>`;
+      const catBars = f.byCategory.length ? (() => { const m = mx(f.byCategory.map((x) => x.value)); return f.byCategory.slice(0, 8).map((x) => U.hbar(x.name, x.value, m, fmt.moneyShort(x.value))).join(""); })() : `<div class="cell-sub">No implemented savings yet.</div>`;
+      const shopBars = f.byShop.length ? (() => { const m = mx(f.byShop.map((x) => x.value)); return f.byShop.slice(0, 8).map((x) => U.hbar(x.name, x.value, m, fmt.moneyShort(x.value))).join(""); })() : `<div class="cell-sub">No implemented savings yet.</div>`;
+
+      return `${head}
+        <div class="grid cols-4" style="margin-bottom:16px">
+          ${U.statCard({ label: "Identified", value: fmt.money(f.identified), accent: "navy", icon: "🔍", iconBg: "var(--navy-50)" })}
+          ${U.statCard({ label: "Approved", value: fmt.money(f.approved), delta: fmt.pct(f.approvedPct) + " of identified", deltaClass: "text-muted", accent: "blue", icon: "👍", iconBg: "var(--blue-bg)" })}
+          ${U.statCard({ label: "Realized (Implemented)", value: fmt.money(f.realized), delta: "▼ captured", deltaClass: "text-green", accent: "green", icon: "✅", iconBg: "var(--green-bg)" })}
+          ${U.statCard({ label: "Capture Rate", value: fmt.pct(f.capturedPct), delta: fmt.money(f.remaining) + " still on the table", deltaClass: "text-amber", accent: "amber", icon: "🎯", iconBg: "var(--amber-bg)" })}
+        </div>
+        <div class="grid cols-2" style="margin-bottom:16px">
+          <div class="card"><h3 class="card-title">🪜 Realization funnel</h3>
+            ${bar("Identified", f.identified, "var(--navy-700)")}
+            ${bar("In review", f.inReview, "var(--sand)")}
+            ${bar("Approved", f.approved, "var(--sky)")}
+            ${bar("Realized", f.realized, "var(--sage)")}
+          </div>
+          <div class="card"><h3 class="card-title">📈 Realized savings over time</h3>${trend}</div>
+        </div>
+        <div class="grid cols-2">
+          <div class="card"><h3 class="card-title">🗂️ Realized by category</h3>${catBars}</div>
+          <div class="card"><h3 class="card-title">🏬 Realized by shop</h3>${shopBars}</div>
+        </div>`;
+    },
+    mount() {
+      const snap = async (announce) => {
+        try { if (window.Store && window.Store.available()) { await window.Store.saveSnapshot(); if (announce) window.App.renderCurrent(); } }
+        catch (_) { /* ignore */ }
+      };
+      const btn = document.getElementById("snapBtn");
+      if (btn) btn.addEventListener("click", () => snap(true));
+      // Auto-capture once per day (admins only) so the trend builds on its own.
+      if (State.role === "Procurement Admin" && (P.SKUS || []).length) {
+        const today = new Date().toISOString().slice(0, 10);
+        if (!(P.SNAPSHOTS || []).some((s) => s.date === today)) snap(true);
+      }
+    },
+  };
+
   /* ============== PRICE COMPLIANCE (invoice vs contract) ============== */
   PAGES.compliance = {
     title: "Price Compliance",

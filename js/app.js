@@ -12,6 +12,7 @@
     { id: "categories", label: "Categories", icon: "🗂️", route: "#/categories" },
     { id: "catalog", label: "SKU Catalog", icon: "📦", route: "#/catalog" },
     { id: "savings", label: "Savings Opportunities", icon: "📉", route: "#/savings" },
+    { id: "realization", label: "Savings Realization", icon: "🎯", route: "#/realization" },
     { id: "shops", label: "Shop View", icon: "🏬", route: "#/shops" },
     { id: "patterns", label: "Buying Patterns", icon: "📅", route: "#/patterns" },
     { id: "vendorspend", label: "Vendor Spend", icon: "🧾", route: "#/vendorspend" },
@@ -30,7 +31,7 @@
   ];
 
   // page id -> permission key (some nav items map to same permission group)
-  const PERM_KEY = { summary: "dashboard", dashboard: "dashboard", categories: "categories", catalog: "catalog", savings: "savings", shops: "shops", patterns: "catalog", vendorspend: "savings", compliance: "savings", vendors: "vendors", comparison: "comparison", uom: "catalog", tracker: "tracker", ask: "catalog", intel: "savings", market: "dashboard", quality: "admin", ai: "admin", security: "security", admin: "admin" };
+  const PERM_KEY = { summary: "dashboard", dashboard: "dashboard", categories: "categories", catalog: "catalog", savings: "savings", realization: "savings", shops: "shops", patterns: "catalog", vendorspend: "savings", compliance: "savings", vendors: "vendors", comparison: "comparison", uom: "catalog", tracker: "tracker", ask: "catalog", intel: "savings", market: "dashboard", quality: "admin", ai: "admin", security: "security", admin: "admin" };
 
   function allowed(pageId) {
     const role = P.ROLES[State.role];
