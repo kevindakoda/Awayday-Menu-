@@ -498,6 +498,8 @@
       const shops = P.shops();
       const code = params[0] ? decodeURIComponent(params[0]) : null;
       if (!code) {
+        const tot = P.aggregate(P.SKUS);
+        const reviewed = shops.filter((s) => s.implementationStatus && s.implementationStatus !== "Not Reviewed").length;
         const cards = shops.map((s) => `<div class="cat-tile-wrap" style="position:relative">
           <a class="cat-tile" href="#/shops/${encodeURIComponent(s.code)}">
           <div class="tile-head" style="background:var(--navy)"><span class="ic">🏬</span><span class="nm">${esc(s.shopName)}</span></div>
@@ -514,6 +516,13 @@
             <div><h1>Shop View</h1><p>Decentralized shop dashboards. Each shop sees only its own relevant savings opportunities and action items.</p></div>
             <button class="btn btn-green btn-sm" id="dlAllShops">⬇ All shops — savings (CSV)</button>
           </div>
+          <div class="grid cols-4" style="margin-bottom:18px">
+            ${U.statCard({ label: "Total Savings Opportunity", value: fmt.money(tot.savingsOpportunity), delta: "▼ " + fmt.pct(tot.savingsPercentage) + " vs current", accent: "green", icon: "📉", iconBg: "var(--green-bg)" })}
+            ${U.statCard({ label: "Current Annual Spend", value: fmt.money(tot.baselineSpend), accent: "navy", icon: "💵", iconBg: "var(--navy-50)" })}
+            ${U.statCard({ label: "Projected New Spend", value: fmt.money(tot.newSpend), accent: "blue", icon: "🤝", iconBg: "var(--blue-bg)" })}
+            ${U.statCard({ label: "Shops", value: shops.length, delta: reviewed + " reviewed", deltaClass: "text-muted", accent: "navy", icon: "🏬", iconBg: "var(--navy-50)" })}
+          </div>
+          <div class="cell-sub" style="margin:-6px 0 14px">Savings opportunity is projected on each shop's annual purchase volume (quantity × negotiated price delta).</div>
           <div class="grid cols-3">${cards}</div>`;
       }
       const shop = shops.find((s) => s.code === code);
