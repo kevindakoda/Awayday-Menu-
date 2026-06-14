@@ -491,6 +491,45 @@
   };
 
   /* ============================== SHOP VIEW ============================== */
+  function shopBasisToggle(basis) {
+    return `<div class="pillbar" style="margin-bottom:14px">
+      <button class="pill ${basis === "plan" ? "active" : ""}" data-basis="plan">📐 Annual plan</button>
+      <button class="pill ${basis === "actual" ? "active" : ""}" data-basis="actual">🧾 Actual volume (AP)</button>
+    </div>`;
+  }
+
+  // Savings computed from actual invoiced AP volume × catalog savings rate.
+  function actualVolumeView() {
+    const ap = P.apSavingsAll();
+    if (!ap.hasData) {
+      return `<div class="notice" style="margin-bottom:16px">🧾 No AP spend uploaded yet. Add invoiced spend on the <a href="#/patterns">Buying Patterns</a> tab to see savings based on what each shop <b>actually bought</b>.</div>`;
+    }
+    const t = ap.totals;
+    const period = ap.minDate && ap.maxDate ? `${ap.minDate} → ${ap.maxDate}` : "—";
+    const rows = ap.shops.map((s) => `<tr>
+        <td class="cell-strong">${esc(s.shop)}</td>
+        <td class="cell-sub">${esc(s.minDate || "—")} → ${esc(s.maxDate || "—")}<div class="cell-sub">${s.months} mo · ${fmt.num(s.lines)} lines</div></td>
+        <td class="num">${fmt.money(s.actualSpend)}</td>
+        <td class="num cell-strong text-green">${fmt.money(s.savings)}</td>
+        <td>${U.savingsBadge(s.savingsPct)}</td>
+        <td class="num">${fmt.money(s.annualizedSavings)}</td>
+      </tr>`).join("");
+    return `
+      <div class="grid cols-4" style="margin-bottom:16px">
+        ${U.statCard({ label: "Savings on Actual Volume", value: fmt.money(t.savings), delta: "▼ " + fmt.pct(t.savingsPct) + " of invoiced", accent: "green", icon: "🧾", iconBg: "var(--green-bg)" })}
+        ${U.statCard({ label: "Invoiced Spend (AP)", value: fmt.money(t.actualSpend), delta: esc(period), deltaClass: "text-muted", accent: "navy", icon: "💵", iconBg: "var(--navy-50)" })}
+        ${U.statCard({ label: "Annualized Savings", value: fmt.money(t.annualizedSavings), delta: "projected 12-mo", deltaClass: "text-muted", accent: "blue", icon: "📈", iconBg: "var(--blue-bg)" })}
+        ${U.statCard({ label: "Shops with Invoices", value: ap.shops.length, accent: "navy", icon: "🏬", iconBg: "var(--navy-50)" })}
+      </div>
+      <div class="card" style="margin-bottom:18px">
+        <h3 class="card-title">🧾 Savings on actual invoiced volume by shop</h3>
+        <p class="cell-sub" style="margin-top:-4px">Each shop's invoiced AP spend per category × the negotiated savings rate from the catalog. Annualized to a full year based on the period covered.</p>
+        <div class="table-wrap" style="border:none"><table class="data" style="min-width:720px"><thead><tr>
+          <th>Shop</th><th>Period</th><th class="num">Invoiced spend</th><th class="num">Est. savings</th><th>Rate</th><th class="num">Annualized</th>
+        </tr></thead><tbody>${rows}</tbody></table></div>
+      </div>`;
+  }
+
   PAGES.shops = {
     title: "Shop View",
     crumb: "Shop View",
@@ -500,6 +539,7 @@
       if (!code) {
         const tot = P.aggregate(P.SKUS);
         const reviewed = shops.filter((s) => s.implementationStatus && s.implementationStatus !== "Not Reviewed").length;
+        const basis = State.shopBasis === "actual" ? "actual" : "plan";
         const cards = shops.map((s) => `<div class="cat-tile-wrap" style="position:relative">
           <a class="cat-tile" href="#/shops/${encodeURIComponent(s.code)}">
           <div class="tile-head" style="background:var(--navy)"><span class="ic">🏬</span><span class="nm">${esc(s.shopName)}</span></div>
@@ -516,13 +556,15 @@
             <div><h1>Shop View</h1><p>Decentralized shop dashboards. Each shop sees only its own relevant savings opportunities and action items.</p></div>
             <button class="btn btn-green btn-sm" id="dlAllShops">⬇ All shops — savings (CSV)</button>
           </div>
-          <div class="grid cols-4" style="margin-bottom:18px">
-            ${U.statCard({ label: "Total Savings Opportunity", value: fmt.money(tot.savingsOpportunity), delta: "▼ " + fmt.pct(tot.savingsPercentage) + " vs current", accent: "green", icon: "📉", iconBg: "var(--green-bg)" })}
-            ${U.statCard({ label: "Current Annual Spend", value: fmt.money(tot.baselineSpend), accent: "navy", icon: "💵", iconBg: "var(--navy-50)" })}
-            ${U.statCard({ label: "Projected New Spend", value: fmt.money(tot.newSpend), accent: "blue", icon: "🤝", iconBg: "var(--blue-bg)" })}
-            ${U.statCard({ label: "Shops", value: shops.length, delta: reviewed + " reviewed", deltaClass: "text-muted", accent: "navy", icon: "🏬", iconBg: "var(--navy-50)" })}
-          </div>
-          <div class="cell-sub" style="margin:-6px 0 14px">Savings opportunity is projected on each shop's annual purchase volume (quantity × negotiated price delta).</div>
+          ${shopBasisToggle(basis)}
+          ${basis === "actual" ? actualVolumeView() : `
+            <div class="grid cols-4" style="margin-bottom:18px">
+              ${U.statCard({ label: "Total Savings Opportunity", value: fmt.money(tot.savingsOpportunity), delta: "▼ " + fmt.pct(tot.savingsPercentage) + " vs current", accent: "green", icon: "📉", iconBg: "var(--green-bg)" })}
+              ${U.statCard({ label: "Current Annual Spend", value: fmt.money(tot.baselineSpend), accent: "navy", icon: "💵", iconBg: "var(--navy-50)" })}
+              ${U.statCard({ label: "Projected New Spend", value: fmt.money(tot.newSpend), accent: "blue", icon: "🤝", iconBg: "var(--blue-bg)" })}
+              ${U.statCard({ label: "Shops", value: shops.length, delta: reviewed + " reviewed", deltaClass: "text-muted", accent: "navy", icon: "🏬", iconBg: "var(--navy-50)" })}
+            </div>
+            <div class="cell-sub" style="margin:-6px 0 14px">Savings opportunity is projected on each shop's annual purchase volume (quantity × negotiated price delta).</div>`}
           <div class="grid cols-3">${cards}</div>`;
       }
       const shop = shops.find((s) => s.code === code);
@@ -595,6 +637,10 @@
         ${tabContent}`;
     },
     mount() {
+      document.querySelectorAll("[data-basis]").forEach((b) => b.addEventListener("click", () => {
+        State.shopBasis = b.getAttribute("data-basis");
+        window.App.renderCurrent();
+      }));
       document.querySelectorAll("#shopTabs [data-tab]").forEach((b) => b.addEventListener("click", () => {
         State.shopTab = b.getAttribute("data-tab");
         window.App.renderCurrent();

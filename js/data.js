@@ -1078,6 +1078,67 @@
   function apClear() { AP.length = 0; }
   function apShops() { return Array.from(new Set(AP.map((r) => r.shop).filter(Boolean))).sort(); }
 
+  // Catalog savings RATE (savings$ / baseline$) for a shop and/or category
+  // group — the negotiated discount we expect on that spend.
+  function catalogRate(shopName, group) {
+    let rows = SKUS;
+    if (shopName) rows = rows.filter((s) => s.shop === shopName);
+    if (group) rows = rows.filter((s) => s.categoryGroup === group);
+    const agg = aggregate(rows);
+    return agg.baselineSpend > 0 ? agg.savingsOpportunity / agg.baselineSpend : 0;
+  }
+
+  // Actual-volume savings for one shop: apply the catalog savings rate (per
+  // category group, with fallbacks) to what the shop ACTUALLY invoiced in AP.
+  // Annualizes by the period the AP data spans.
+  function apShopSavings(shopName) {
+    const rows = AP.filter((r) => r.shop === shopName && r.amount > 0);
+    if (!rows.length) return null;
+    const byGroup = {};
+    let minD = null, maxD = null;
+    rows.forEach((r) => {
+      const g = r.categoryGroup || "Other";
+      byGroup[g] = (byGroup[g] || 0) + r.amount;
+      if (r.date) { if (!minD || r.date < minD) minD = r.date; if (!maxD || r.date > maxD) maxD = r.date; }
+    });
+    let actualSpend = 0, savings = 0;
+    const groups = [];
+    Object.keys(byGroup).forEach((g) => {
+      const spend = byGroup[g];
+      const rate = catalogRate(shopName, g) || catalogRate(shopName, null) || catalogRate(null, g) || catalogRate(null, null);
+      const sv = round(spend * rate);
+      actualSpend += spend; savings += sv;
+      groups.push({ group: g, spend: round(spend), rate: round(rate * 100, 1), savings: sv });
+    });
+    let days = 0, factor = 1;
+    if (minD && maxD) { days = Math.max(1, (new Date(maxD) - new Date(minD)) / 86400000 + 1); factor = 365 / days; }
+    groups.sort((a, b) => b.savings - a.savings);
+    return {
+      shop: shopName, lines: rows.length,
+      actualSpend: round(actualSpend), savings: round(savings),
+      annualizedSpend: round(actualSpend * factor), annualizedSavings: round(savings * factor),
+      minDate: minD, maxDate: maxD, months: Math.round((days / 30.44) * 10) / 10,
+      savingsPct: actualSpend > 0 ? round((savings / actualSpend) * 100, 1) : 0,
+      groups,
+    };
+  }
+
+  // Roll up actual-volume savings across every shop that has AP data.
+  function apSavingsAll() {
+    const shops = Array.from(new Set(AP.filter((r) => r.amount > 0).map((r) => r.shop).filter(Boolean)));
+    const list = shops.map(apShopSavings).filter(Boolean).sort((a, b) => b.savings - a.savings);
+    const totals = list.reduce((t, s) => ({
+      actualSpend: t.actualSpend + s.actualSpend, savings: t.savings + s.savings,
+      annualizedSpend: t.annualizedSpend + s.annualizedSpend, annualizedSavings: t.annualizedSavings + s.annualizedSavings,
+    }), { actualSpend: 0, savings: 0, annualizedSpend: 0, annualizedSavings: 0 });
+    const dates = AP.map((r) => r.date).filter(Boolean).sort();
+    return {
+      shops: list, hasData: list.length > 0,
+      totals: { actualSpend: round(totals.actualSpend), savings: round(totals.savings), annualizedSpend: round(totals.annualizedSpend), annualizedSavings: round(totals.annualizedSavings), savingsPct: totals.actualSpend > 0 ? round((totals.savings / totals.actualSpend) * 100, 1) : 0 },
+      minDate: dates[0] || "", maxDate: dates[dates.length - 1] || "",
+    };
+  }
+
   // Weekly market-intelligence briefings (populated from the database).
   const MARKET = [];
   // Monday (ISO week start) of the date as YYYY-MM-DD — the briefing's week key.
@@ -1145,6 +1206,8 @@
     ingestApItems,
     apSummary,
     apShops,
+    apShopSavings,
+    apSavingsAll,
     apClear,
     MARKET,
     weekOf,
