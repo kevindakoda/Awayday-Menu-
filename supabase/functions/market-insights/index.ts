@@ -4,8 +4,10 @@
 // disposables (paper, pulp, resin/plastics), tariffs/trade policy, and
 // hospitality technology — and writes a sourced "Bloomberg-style" briefing.
 //
-// Auth: verify_jwt = true, plus the caller must be a Procurement Admin
-// (checked via the service role) so web-search spend stays controlled.
+// Auth: verify_jwt = true. Either a Procurement Admin (checked via service
+// role) calls it interactively, OR a scheduled pg_cron job calls it with the
+// service-role key (role = "service_role"), in which case we ALSO persist the
+// issue server-side so it appears with no human in the loop.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
@@ -38,6 +40,26 @@ async function isProcurementAdmin(sub: string | null): Promise<boolean> {
   });
   const rows = await res.json();
   return Array.isArray(rows) && rows[0] && rows[0].role === "Procurement Admin";
+}
+
+// Monday (ISO week start) of a YYYY-MM-DD date, in UTC.
+function mondayOf(d: string): string {
+  const dt = new Date(d + "T00:00:00Z");
+  const day = (dt.getUTCDay() + 6) % 7;
+  dt.setUTCDate(dt.getUTCDate() - day);
+  return dt.toISOString().slice(0, 10);
+}
+
+async function persist(text: string, sources: unknown, asOf: string) {
+  const week = mondayOf(asOf);
+  await fetch(`${SUPABASE_URL}/rest/v1/market_insights?on_conflict=id`, {
+    method: "POST",
+    headers: {
+      apikey: SERVICE_KEY, authorization: `Bearer ${SERVICE_KEY}`,
+      "content-type": "application/json", prefer: "resolution=merge-duplicates",
+    },
+    body: JSON.stringify({ id: "MI-" + week, week_of: week, as_of: new Date().toISOString(), text, sources: sources || [] }),
+  });
 }
 
 const MARKET_SYS =
@@ -74,7 +96,9 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
   if (!ANTHROPIC_KEY) return json({ error: "ANTHROPIC_API_KEY is not configured on this project.", code: "NO_KEY" }, 503);
-  if (!(await isProcurementAdmin(claim(req, "sub")))) {
+
+  const isCron = claim(req, "role") === "service_role";
+  if (!isCron && !(await isProcurementAdmin(claim(req, "sub")))) {
     return json({ error: "Only a Procurement Admin can generate market insights." }, 403);
   }
 
@@ -97,5 +121,7 @@ Deno.serve(async (req: Request) => {
   }
   const text = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n").trim();
   const sources = collectSources(data.content || []);
-  return json({ text, sources, asOf: today });
+  // Scheduled runs have no client to save the result, so persist server-side.
+  if (isCron) { try { await persist(text, sources, today); } catch (_) { /* still return below */ } }
+  return json({ text, sources, asOf: today, persisted: isCron });
 });
