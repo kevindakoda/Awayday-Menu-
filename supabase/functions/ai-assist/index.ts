@@ -414,6 +414,7 @@ const SPEND_ITEM = {
     date: { type: "string", description: "ISO YYYY-MM-DD. If only month/year is shown use the 1st of that month; empty string if no date." },
     shop: { type: "string", description: "Property / shop / location / entity name if shown" },
     vendor: { type: "string", description: "Supplier / payee" },
+    sku: { type: "string", description: "Vendor SKU / item number / product code if shown" },
     category: { type: "string", description: "Best-fit category from the allowed taxonomy" },
     subcategory: { type: "string" },
     amount: { type: "number", description: "Total spend for this line (the money), as a number" },
@@ -424,7 +425,7 @@ const SPEND_ITEM = {
 };
 const SPEND_SYS =
   "You extract dated spend line items from an accounts-payable export, invoice, vendor statement, receipt, or messy spreadsheet for a hotel-supply portal. " +
-  "Return EVERY real purchase/spend line. For each: the transaction date (ISO YYYY-MM-DD; if only a month or period is given use the 1st of that month; empty if truly none), the property/shop name if present, the vendor, a category and subcategory chosen from the allowed taxonomy, the line's total spend amount as a number, the quantity if shown, and a short description. Ignore subtotals, tax-only, and header/footer lines.\n" +
+  "Return EVERY real purchase/spend line. For each: the transaction date (ISO YYYY-MM-DD; if only a month or period is given use the 1st of that month; empty if truly none), the property/shop name if present, the vendor, the vendor SKU/item number if shown, a category and subcategory chosen from the allowed taxonomy, the line's total spend amount as a number, the quantity if shown, and a short description. Ignore subtotals, tax-only, and header/footer lines.\n" +
   "Allowed taxonomy (category -> subcategories):\n";
 
 // deno-lint-ignore no-explicit-any

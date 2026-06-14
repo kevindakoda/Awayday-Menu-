@@ -7,6 +7,7 @@
   const State = window.AppState;
 
   const NAV = [
+    { id: "summary", label: "Executive Summary", icon: "⭐", route: "#/summary" },
     { id: "dashboard", label: "Dashboard", icon: "📊", route: "#/dashboard" },
     { id: "categories", label: "Categories", icon: "🗂️", route: "#/categories" },
     { id: "catalog", label: "SKU Catalog", icon: "📦", route: "#/catalog" },
@@ -28,7 +29,7 @@
   ];
 
   // page id -> permission key (some nav items map to same permission group)
-  const PERM_KEY = { dashboard: "dashboard", categories: "categories", catalog: "catalog", savings: "savings", shops: "shops", patterns: "catalog", vendorspend: "savings", vendors: "vendors", comparison: "comparison", uom: "catalog", tracker: "tracker", ask: "catalog", intel: "savings", market: "dashboard", quality: "admin", ai: "admin", security: "security", admin: "admin" };
+  const PERM_KEY = { summary: "dashboard", dashboard: "dashboard", categories: "categories", catalog: "catalog", savings: "savings", shops: "shops", patterns: "catalog", vendorspend: "savings", vendors: "vendors", comparison: "comparison", uom: "catalog", tracker: "tracker", ask: "catalog", intel: "savings", market: "dashboard", quality: "admin", ai: "admin", security: "security", admin: "admin" };
 
   function allowed(pageId) {
     const role = P.ROLES[State.role];

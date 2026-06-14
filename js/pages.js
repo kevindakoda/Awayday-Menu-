@@ -2610,6 +2610,87 @@
     },
   };
 
+  /* ============== EXECUTIVE SUMMARY (president landing) ============== */
+  PAGES.summary = {
+    title: "Executive Summary",
+    crumb: "Executive Summary",
+    render() {
+      const tot = P.aggregate(P.SKUS);
+      const cats = P.categoryGroups();
+      const shops = P.shops();
+      const opps = P.opportunities();
+      const dq = P.dataQuality();
+      const dups = P.vendorDuplicates();
+      const ap = P.apSavingsAll();
+      const atRisk = (P.SKUS || []).filter((s) => s.annualSavings > 0 && (!s.implementationStatus || s.implementationStatus === "Not Reviewed"));
+      const atRiskSavings = Math.round(atRisk.reduce((a, s) => a + s.annualSavings, 0));
+      const market = (P.MARKET || [])[0];
+
+      const hero = `<div class="page-head hero">
+        <div class="hero-eyebrow">⚓ Rental President Briefing</div>
+        <h1>Executive Summary</h1>
+        <p>Your expenses and cost-savings opportunities at a glance — across catalog pricing, shops, vendors, and invoiced spend.</p>
+        <div class="hero-stats">
+          <div><div class="hs-num">${fmt.money(tot.savingsOpportunity)}</div><div class="hs-lbl">Identified savings</div></div>
+          <div class="hs-div"></div>
+          <div><div class="hs-num" style="color:#9fe0cb">${fmt.pct(tot.savingsPercentage)}</div><div class="hs-lbl">vs. baseline spend</div></div>
+          <div class="hs-div"></div>
+          <div><div class="hs-num">${fmt.money(tot.baselineSpend)}</div><div class="hs-lbl">Annual spend analyzed</div></div>
+        </div>
+      </div>`;
+
+      if (!(P.SKUS || []).length && !ap.hasData) {
+        return `${hero}<div class="notice" style="margin-bottom:0">📭 No data yet. Load your catalog in <a href="#/admin">Admin</a> and upload vendor sales reports in <a href="#/vendorspend">Vendor Spend</a> to populate this summary.</div>`;
+      }
+
+      const kpis = `<div class="grid cols-4" style="margin-bottom:16px">
+        ${U.statCard({ label: "Identified Savings", value: fmt.money(tot.savingsOpportunity), delta: "▼ " + fmt.pct(tot.savingsPercentage) + " vs baseline", accent: "green", icon: "📉", iconBg: "var(--green-bg)" })}
+        ${U.statCard({ label: "Savings at Risk", value: fmt.money(atRiskSavings), delta: atRisk.length + " SKUs unreviewed", deltaClass: "text-amber", accent: "amber", icon: "⏳", iconBg: "var(--amber-bg)" })}
+        ${U.statCard({ label: "Invoiced Spend (AP)", value: ap.hasData ? fmt.money(ap.totals.actualSpend) : "—", delta: ap.hasData ? "actual volume" : "upload reports", deltaClass: "text-muted", accent: "navy", icon: "🧾", iconBg: "var(--navy-50)" })}
+        ${U.statCard({ label: "Items to Review", value: fmt.num(dq.counts.negative + dq.counts.outliers + dups.length), delta: dups.length + " dup vendor SKUs", deltaClass: "text-muted", accent: "blue", icon: "🚩", iconBg: "var(--blue-bg)" })}
+      </div>`;
+
+      const topOpps = opps.slice(0, 6).map((o) => `<tr class="row-link" onclick="location.hash='#/savings'">
+        <td><span class="cell-strong">${esc(o.subcategory)}</span><div class="cell-sub">${esc(o.category)} · ${esc(o.shopCode)}</div></td>
+        <td>${esc(o.recommendedSupplier)}</td>
+        <td>${U.savingsBadge(o.savingsPercentage)}</td>
+        <td>${o.badges[0] ? U.oppBadge(o.badges[0]) : ""}</td></tr>`).join("");
+      const maxShop = mx(shops.map((s) => s.savingsOpportunity));
+      const shopBars = shops.slice().sort((a, b) => b.savingsOpportunity - a.savingsOpportunity).slice(0, 8)
+        .map((s) => U.hbar(s.shopName, s.savingsOpportunity, maxShop, fmt.moneyShort(s.savingsOpportunity))).join("");
+
+      const marketCard = market ? `<div class="card"><h3 class="card-title">🌐 Market signal <span class="cell-sub">week of ${esc(market.weekOf)}</span></h3>
+          <div style="font-size:13px;line-height:1.55;color:var(--gray-700)">${esc(String(market.text || "").replace(/\n+/g, " ").slice(0, 280))}…</div>
+          <a class="btn btn-outline btn-sm" href="#/market" style="margin-top:10px">Read the brief →</a></div>`
+        : `<div class="card"><h3 class="card-title">🌐 Market signal</h3><div class="cell-sub">No market brief yet. <a href="#/market">Generate this week's issue →</a></div></div>`;
+
+      return `${hero}${kpis}
+        <div class="grid cols-2" style="margin-bottom:16px">
+          <div class="card"><h3 class="card-title">🗂️ Spend by category</h3>${U.donut(cats.map((c) => ({ label: c.categoryName, value: c.savingsOpportunity, color: c.color })))}</div>
+          <div class="card"><h3 class="card-title">🏆 Top savings opportunities</h3>
+            ${topOpps ? `<div class="table-wrap" style="border:none"><table class="data" style="min-width:420px"><thead><tr><th>Opportunity</th><th>Vendor</th><th>Savings</th><th>Flag</th></tr></thead><tbody>${topOpps}</tbody></table></div>` : `<div class="cell-sub">No opportunities yet.</div>`}
+          </div>
+        </div>
+        <div class="grid cols-2" style="margin-bottom:16px">
+          <div class="card"><h3 class="card-title">🏬 Savings by shop</h3>${shopBars || `<div class="cell-sub">No shop data.</div>`}</div>
+          ${marketCard}
+        </div>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <h3 class="card-title" style="margin:0">🧭 Where to go next</h3>
+          </div>
+          <div class="tag-cats" style="margin-top:6px">
+            <a class="badge blue" href="#/vendorspend" style="text-decoration:none">🧾 Vendor Spend</a>
+            <a class="badge blue" href="#/patterns" style="text-decoration:none">📅 Buying Patterns</a>
+            <a class="badge blue" href="#/shops" style="text-decoration:none">🏬 Shop View</a>
+            <a class="badge blue" href="#/savings" style="text-decoration:none">📉 Savings Opportunities</a>
+            <a class="badge blue" href="#/ask" style="text-decoration:none">🤖 Ask AI</a>
+            <a class="badge blue" href="#/quality" style="text-decoration:none">🧹 Data Quality</a>
+          </div>
+        </div>`;
+    },
+  };
+
   /* ============== VENDOR SPEND (vendor sales reports) ============== */
   PAGES.vendorspend = {
     title: "Vendor Spend",
