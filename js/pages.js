@@ -734,7 +734,7 @@
         <div class="rec-callout">
           <span class="big">💡</span>
           <div><b>Recommended savings opportunity:</b> switch to ${esc(sku.recommendedVendor)} to save
-          <b>${fmt.money(sku.annualSavings)}</b> per year (${fmt.pct(sku.savingsPercentage)}) on ${esc(sku.productName)}.</div>
+          <b>${fmt.pct(sku.savingsPercentage)}</b> on ${esc(sku.productName)}.</div>
         </div>
         <div class="compare-grid">
           ${col("Current Product", "current", {
@@ -750,7 +750,7 @@
         <div class="grid cols-3" style="margin-top:18px">
           ${U.statCard({ label: "Old Price", value: fmt.money(sku.currentUnitPrice, 2), accent: "navy" })}
           ${U.statCard({ label: "New Price", value: fmt.money(sku.newUnitPrice, 2), accent: "blue" })}
-          ${U.statCard({ label: "Per-Unit Savings", value: fmt.money(sku.currentUnitPrice - sku.newUnitPrice, 2), delta: "▼ " + fmt.pct(sku.savingsPercentage), accent: "green" })}
+          ${U.statCard({ label: "Price Difference", value: "▼ " + fmt.pct(sku.savingsPercentage), accent: "green" })}
         </div>
         <div class="card" style="margin-top:18px"><h3 class="card-title">📝 Product Notes</h3><p class="text-muted">${esc(sku.notes)}</p>
           <div class="tag-cats" style="margin-top:8px">${sku.preferredItem ? '<span class="badge blue">★ Preferred</span>' : ""}${sku.contractedItem ? '<span class="badge purple">Contracted</span>' : ""}<span class="badge navy">${esc(sku.category)} · ${esc(sku.subcategory)}</span></div>
