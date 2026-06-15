@@ -2817,11 +2817,35 @@
     const summary = secs.filter((s) => s.key === "summary");
     const cats = secs.filter((s) => s.key !== "summary");
     const issueDate = new Date(issue.weekOf + "T00:00:00");
-    const niceDate = isNaN(+issueDate) ? issue.weekOf : issueDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-    const sumBlock = summary.length ? `<div class="news-summary">
-        <div class="news-summary-k">Executive summary</div>
-        ${summary.map((s) => `${s.lead ? `<p>${esc(s.lead)}</p>` : ""}${s.points.length ? `<ul class="news-points">${s.points.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}`).join("")}
-      </div>` : "";
+    const niceDate = isNaN(+issueDate) ? issue.weekOf : issueDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+
+    // Lead story (editorial feature) built from the executive summary block.
+    const leadLead = summary.map((s) => s.lead).filter(Boolean).join(" ");
+    const leadPoints = [].concat.apply([], summary.map((s) => s.points));
+    const leadHtml = (leadLead || leadPoints.length)
+      ? `<article class="news-lead-story">
+          <span class="nls-kicker">Executive Summary</span>
+          <h2 class="nls-title">This week in your cost basis</h2>
+          ${leadLead ? `<p class="nls-body">${esc(leadLead)}</p>` : ""}
+          ${leadPoints.length ? `<ul class="news-points">${leadPoints.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}
+        </article>`
+      : "";
+
+    // "Top News" rail — section headlines with trend direction.
+    const topNews = cats.length
+      ? `<aside class="news-topnews">
+          <h3 class="ntn-h">Top News</h3>
+          ${cats.map((s) => `<div class="ntn-item">
+            <span class="ntn-cat">${s.icon} ${esc(s.name)}${s.trend ? mktTrendChip(s.trend) : ""}</span>
+            <p class="ntn-head">${esc(s.lead || s.points[0] || "")}</p>
+          </div>`).join('<div class="ntn-div"></div>')}
+        </aside>`
+      : "";
+
+    const feature = (leadHtml || topNews)
+      ? `<div class="news-feature">${leadHtml || '<div class="news-lead-story"></div>'}${topNews}</div>`
+      : "";
+
     const card = (s) => `<article class="news-card accent-${s.accent}">
         <header class="news-card-head"><span class="news-ico">${s.icon}</span><h3>${esc(s.name)}</h3>${s.trend ? mktTrendChip(s.trend) : ""}</header>
         ${s.lead ? `<p class="news-lead">${esc(s.lead)}</p>` : ""}
@@ -2829,19 +2853,29 @@
         ${s.take ? `<div class="news-take"><span>📌 What it means for buyers</span>${esc(s.take)}</div>` : ""}
       </article>`;
     const body = cats.length
-      ? `<div class="news-grid">${cats.map(card).join("")}</div>`
+      ? `<div class="news-section-label">In depth</div><div class="news-grid">${cats.map(card).join("")}</div>`
       : `<div class="card"><div style="line-height:1.6;white-space:pre-wrap">${esc(issue.text)}</div></div>`;
+
     return `<div class="newsletter">
       <div class="news-masthead">
-        <div class="nm-row"><span class="nm-kicker">PROCUREMENT MARKET BRIEF</span><span class="nm-issue">Week of ${esc(niceDate)}</span></div>
-        <h1 class="nm-title">The Supply Wire</h1>
-        <p class="nm-tagline">Market shifts in linens, disposables, tariffs &amp; technology that move your cost basis.</p>
+        <div class="nm-brand">
+          <span class="nm-kicker">Procurement Market Brief</span>
+          <h1 class="nm-title">The Supply Wire</h1>
+          <p class="nm-tagline">Linens · Disposables · Tariffs · Technology — the shifts that move your cost basis.</p>
+        </div>
+        <div class="nm-side">
+          <div class="nm-logo">◭</div>
+          <div class="nm-date">${esc(niceDate)}</div>
+        </div>
+      </div>
+      <div class="nm-strip">
         <div class="nm-meta"><span>🗓️ Generated ${esc(String(issue.asOf).slice(0, 10))}</span><span>🔗 ${(issue.sources || []).length} sources</span><span>🤖 AI-compiled from live web data</span></div>
         <div class="nm-actions"><button class="news-act" id="mktCopy">📋 Copy</button><button class="news-act" id="mktEmail">📧 Email team</button><button class="news-act" id="mktPrint">🖨️ Print</button></div>
       </div>
-      ${sumBlock}
+      ${feature}
       ${body}
       ${mktSourcesHtml(issue.sources)}
+      <div class="news-footer"><span>The Supply Wire · AwayDay Procurement</span><span>Week of ${esc(niceDate)}</span></div>
     </div>`;
   }
 

@@ -8,6 +8,19 @@
 
   const NAV_GROUPS = [
     {
+      section: "Brand View",
+      items: [
+        { id: "catalog", label: "SKU Catalog", icon: "📦", route: "#/catalog" },
+        { id: "savings", label: "Savings Opportunities", icon: "📉", route: "#/savings" },
+        { id: "shops", label: "Shop View", icon: "🏬", route: "#/shops" },
+        { id: "patterns", label: "Buying Patterns", icon: "📅", route: "#/patterns" },
+        { id: "comparison", label: "Product Comparison", icon: "🔄", route: "#/comparison" },
+        { id: "ask", label: "Ask AI", icon: "💬", route: "#/ask" },
+        { id: "intel", label: "Risk & Intelligence", icon: "📊", route: "#/intel" },
+        { id: "market", label: "Market Insights", icon: "🌐", route: "#/market" },
+      ],
+    },
+    {
       section: "Procurement View",
       items: [
         { id: "summary", label: "Executive Summary", icon: "⭐", route: "#/summary" },
@@ -23,19 +36,6 @@
         { id: "ai", label: "AI Categorization", icon: "🤖", route: "#/ai" },
         { id: "security", label: "Security & Access", icon: "🔐", route: "#/security" },
         { id: "admin", label: "Admin", icon: "⚙️", route: "#/admin" },
-      ],
-    },
-    {
-      section: "Brand View",
-      items: [
-        { id: "catalog", label: "SKU Catalog", icon: "📦", route: "#/catalog" },
-        { id: "savings", label: "Savings Opportunities", icon: "📉", route: "#/savings" },
-        { id: "shops", label: "Shop View", icon: "🏬", route: "#/shops" },
-        { id: "patterns", label: "Buying Patterns", icon: "📅", route: "#/patterns" },
-        { id: "comparison", label: "Product Comparison", icon: "🔄", route: "#/comparison" },
-        { id: "ask", label: "Ask AI", icon: "💬", route: "#/ask" },
-        { id: "intel", label: "Risk & Intelligence", icon: "📊", route: "#/intel" },
-        { id: "market", label: "Market Insights", icon: "🌐", route: "#/market" },
       ],
     },
   ];
@@ -73,15 +73,24 @@
     }
   }
 
+  let navCollapsed = {};
+  try { navCollapsed = JSON.parse(localStorage.getItem("psp_nav_collapsed") || "{}"); } catch (_) { /* ignore */ }
+
   function renderSidebar() {
     const groupHtml = NAV_GROUPS.map((grp) => {
       const items = grp.items.filter((n) => allowed(n.id));
       if (!items.length) return "";
+      const hasActive = items.some((n) => n.id === current.id);
+      // Collapsed unless the active page lives here; remembers the user's choice.
+      const stored = navCollapsed[grp.section];
+      const open = hasActive || !(stored != null ? stored : grp.section === "Brand View");
       const links = items.map((n) => {
         const isActive = n.id === current.id;
         return `<a href="${n.route}" class="${isActive ? "active" : ""}"><span class="ico">${n.icon}</span>${n.label}</a>`;
       }).join("");
-      return `<div class="nav-section">${grp.section}</div>${links}`;
+      return `<button class="nav-section nav-toggle ${open ? "open" : ""}" data-section="${grp.section}">
+          <span>${grp.section}</span><span class="nav-caret">${open ? "▾" : "▸"}</span></button>
+        <div class="nav-group" ${open ? "" : 'style="display:none"'}>${links}</div>`;
     }).join("");
 
     const user = window.CURRENT_USER || { name: "—", email: "", role: State.role };
@@ -143,6 +152,14 @@
         location.hash = "#/catalog";
       }
     });
+    document.querySelectorAll(".nav-toggle").forEach((h) => h.addEventListener("click", () => {
+      const s = h.getAttribute("data-section");
+      // If the section is currently open, we're collapsing it (store true = collapsed).
+      navCollapsed[s] = h.classList.contains("open");
+      try { localStorage.setItem("psp_nav_collapsed", JSON.stringify(navCollapsed)); } catch (_) { /* ignore */ }
+      const sb = document.getElementById("sidebar");
+      if (sb) { sb.innerHTML = renderSidebar(); wireShell(); }
+    }));
   }
 
   // The app only renders once auth.js confirms a session and calls start().
