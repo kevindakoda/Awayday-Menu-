@@ -3129,16 +3129,20 @@
           <td class="num">${fmt.num(s.qty)}</td><td class="num cell-strong">${fmt.money(s.spend)}</td></tr>`).join("");
 
       const reconcile = (canEdit && unmatched.length) ? `<div class="card" style="margin-bottom:16px;border-left:3px solid var(--sand)">
-          <h3 class="card-title">🔗 Reconcile shop names (${unmatched.length})</h3>
-          <p class="cell-sub" style="margin-top:-4px">These names from the report don't match a brand. Pick the right shop and apply — fuzzy suggestions are pre-selected.</p>
-          <div class="table-wrap" style="border:none"><table class="data" style="min-width:640px"><thead><tr><th>Report name</th><th class="num">Lines</th><th class="num">Spend</th><th>Map to shop</th><th></th></tr></thead><tbody>
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <h3 class="card-title" style="margin:0">🏬 New shops detected (${unmatched.length})</h3>
+            <button class="btn btn-primary btn-sm" id="vsAddAllShops">➕ Add all as new shops</button>
+          </div>
+          <p class="cell-sub" style="margin-top:4px">These property names from the report aren't in your shop list yet — by default they're treated as <b>new shops</b>. Add them, or map one to an existing shop only if it's just an alias.</p>
+          <div class="table-wrap" style="border:none"><table class="data" style="min-width:680px"><thead><tr><th>Report name</th><th class="num">Lines</th><th class="num">Spend</th><th>Action</th></tr></thead><tbody>
           ${unmatched.map((u) => `<tr>
             <td class="cell-strong">${esc(u.raw)}</td><td class="num">${u.count}</td><td class="num">${fmt.money(u.spend)}</td>
-            <td><select class="approve-select" data-recon="${esc(u.raw)}" style="max-width:none;width:100%">
-              <option value="">— choose —</option>
-              ${(P.SHOPS || []).map((b) => `<option ${b.shopName === u.suggestion ? "selected" : ""}>${esc(b.shopName)}</option>`).join("")}
-            </select>${u.suggestion ? `<div class="cell-sub">suggested: ${esc(u.suggestion)} (${u.score}%)</div>` : ""}</td>
-            <td><button class="btn btn-outline btn-sm" data-recon-apply="${esc(u.raw)}">Apply</button></td>
+            <td style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <button class="btn btn-green btn-sm" data-addshop="${esc(u.raw)}">➕ New shop</button>
+              <span class="cell-sub">or map →</span>
+              <select class="approve-select" data-recon="${esc(u.raw)}" style="max-width:none"><option value="">existing shop…</option>${(P.SHOPS || []).map((b) => `<option ${b.shopName === u.suggestion ? "selected" : ""}>${esc(b.shopName)}</option>`).join("")}</select>
+              <button class="btn btn-outline btn-sm" data-recon-apply="${esc(u.raw)}">Map</button>
+            </td>
           </tr>`).join("")}
           </tbody></table></div></div>` : "";
 
@@ -3182,6 +3186,23 @@
       const rerender = () => window.App.renderCurrent();
       const vsel = document.getElementById("vsVendor");
       if (vsel) vsel.addEventListener("change", () => { State.vendorFilter = vsel.value; rerender(); });
+
+      // Add an unmatched report name as a brand-new shop (its AP lines already
+      // carry that name, so it's recognized once the brand exists).
+      const addShop = async (raw) => { P.upsertBrand({ shopName: raw, code: P.nextBrandCode(), region: "" }); };
+      document.querySelectorAll("[data-addshop]").forEach((b) => b.addEventListener("click", async () => {
+        b.disabled = true;
+        await addShop(b.getAttribute("data-addshop"));
+        try { if (window.Store && window.Store.available()) await window.Store.pushAll(); } catch (_) { /* ignore */ }
+        rerender();
+      }));
+      const addAll = document.getElementById("vsAddAllShops");
+      if (addAll) addAll.addEventListener("click", async () => {
+        addAll.disabled = true;
+        P.unmatchedApShops().forEach((u) => addShop(u.raw));
+        try { if (window.Store && window.Store.available()) await window.Store.pushAll(); } catch (_) { /* ignore */ }
+        rerender();
+      });
 
       document.querySelectorAll("[data-recon-apply]").forEach((b) => b.addEventListener("click", async () => {
         const raw = b.getAttribute("data-recon-apply");
