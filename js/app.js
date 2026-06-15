@@ -148,6 +148,22 @@
     document.getElementById("topbar").innerHTML = renderTopbar();
 
     const content = document.getElementById("content");
+    // Brand user with no shop/region assigned yet: nothing is scoped to them,
+    // so explain it rather than showing empty tables everywhere.
+    const role = P.ROLES[State.role];
+    const u = window.CURRENT_USER || {};
+    if (role && role.brandOnly && !u.shop && !u.region) {
+      content.innerHTML = `<div class="page-head"><h1>Welcome${u.name ? ", " + u.name.split(" ")[0] : ""} 👋</h1>
+          <p>Your account isn't linked to a shop yet.</p></div>
+        <div class="empty" style="max-width:560px;margin:0 auto;text-align:center;line-height:1.6">
+          🏬 <b>No shop assigned</b><br>
+          Your portal access is approved, but a portal admin still needs to assign your shop before your data appears.
+          <div style="margin-top:10px">Please contact your procurement admin and ask them to set your shop on the Security &amp; Access page.</div>
+        </div>`;
+      wireShell();
+      window.scrollTo(0, 0);
+      return;
+    }
     if (!allowed(current.id)) {
       // Redirect to the first page this role can see rather than show a wall.
       const dest = firstAllowedPage();
