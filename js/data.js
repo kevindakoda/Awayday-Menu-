@@ -1023,7 +1023,7 @@
   // Parse a variety of date encodings into a JS Date (or null).
   function parseApDate(v) {
     if (v == null || v === "") return null;
-    if (typeof v === "number" && isFinite(v)) { // Excel serial day
+    if (typeof v === "number" && isFinite(v) && v > 59 && v < 80000) { // Excel serial day
       const d = new Date(Math.round((v - 25569) * 86400000));
       return isNaN(+d) ? null : d;
     }
@@ -1032,6 +1032,9 @@
     if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
     m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
     if (m) { let y = +m[3]; if (y < 100) y += 2000; return new Date(y, +m[1] - 1, +m[2]); }
+    // Accounting period as YYYYMM (e.g. finperiod 202605) → 1st of that month.
+    m = s.match(/^(\d{4})(\d{2})$/);
+    if (m && +m[2] >= 1 && +m[2] <= 12) return new Date(+m[1], +m[2] - 1, 1);
     const d = new Date(s);
     return isNaN(+d) ? null : d;
   }
