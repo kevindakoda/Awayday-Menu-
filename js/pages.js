@@ -1085,12 +1085,14 @@
       const regionListOpts = P.REGIONS.map((r) => `<option value="${esc(r)}">`).join("");
       return `
       <div class="page-head"><h1>Admin Console</h1><p>Upload pricing data, manage taxonomy, brands and vendors, edit SKUs, and import/export CSV. Built to support future AI auto-categorization.</p></div>
-      <div class="notice" style="margin-bottom:18px">ℹ️ This is a working front-end mockup. Uploaded/edited data updates the in-memory model for this session and can be exported to CSV.</div>
+      <div class="notice" style="margin-bottom:18px">ℹ️ Uploads save to the shared database and appear on every tab for all signed-in users. If a tab looks stale, click <b>Publish to portal</b> to re-sync, then refresh.</div>
 
       <div class="card" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
         <div><h3 class="card-title" style="margin:0">🗃️ Dataset</h3>
-          <div class="cell-sub" id="dataStatus">${P.SHOPS.length} brand(s) · ${P.SKUS.length} SKU(s) loaded.</div></div>
+          <div class="cell-sub" id="dataStatus">${P.SHOPS.length} brand(s) · ${P.SKUS.length} SKU(s) loaded.</div>
+          <div class="cell-sub" id="publishMsg" style="margin-top:4px"></div></div>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" id="publishData">📤 Publish to portal</button>
           <button class="btn btn-outline btn-sm" id="loadSample">⬇ Load sample data</button>
           <button class="btn btn-outline btn-sm" id="clearData" style="color:var(--red);border-color:var(--red)">🗑 Clear all data</button>
         </div>
@@ -1683,6 +1685,21 @@
         try { await window.Store.pushAll(); } catch (e) { alert("Applied in this session, but the database write failed: " + (e.message || e)); }
         if (window.App) window.App.renderCurrent();
       };
+      // Force-publish the full in-memory dataset to the shared database so it
+      // shows on every tab and for every user (catalog, brands, AP, vendors).
+      dl("publishData", async () => {
+        const msg = document.getElementById("publishMsg");
+        if (!(window.Store && window.Store.available())) { if (msg) msg.innerHTML = `<span class="text-amber">Not connected to the database — sign in to publish.</span>`; return; }
+        if (msg) msg.textContent = "📤 Publishing to the portal…";
+        try {
+          await window.Store.pushAll();                                   // brands + SKUs
+          if (window.Store.pushAp) await window.Store.pushAp();           // AP / vendor spend
+          if (window.Store.saveVendors && P.vendorMaster) await window.Store.saveVendors(P.vendorMaster());
+          if (msg) msg.innerHTML = `<span class="text-green">✅ Published — ${P.SHOPS.length} brand(s), ${P.SKUS.length} SKU(s) are now live on every tab. Other users should refresh.</span>`;
+        } catch (e) {
+          if (msg) msg.innerHTML = `<span class="text-red">⚠️ Publish failed: ${esc(e.message || e)}</span>`;
+        }
+      });
       dl("loadSample", async () => { P.loadSampleData(); await persistBulk("Loaded sample data"); });
       dl("clearData", async () => {
         if (!confirm("Remove ALL brands and SKUs (including saved data in the database)? You can reload sample data afterwards.")) return;
