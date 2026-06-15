@@ -195,7 +195,7 @@ const LINE_ITEM_SCHEMA = {
     region: { type: "string" },
     currentVendor: { type: "string" },
     recommendedVendor: { type: "string" },
-    currentUnitPrice: { type: "number", description: "Current/old/list unit price PER EACH; if only one price is shown use this" },
+    currentUnitPrice: { type: "number", description: "Current/old/list unit price PER EACH; if a price is per case/pack/dozen divide down to per each; if only one price is shown use this" },
     newUnitPrice: { type: "number", description: "New/negotiated/quoted unit price PER EACH if shown" },
     annualQuantity: { type: "number" },
     unitOfMeasure: { type: "string" },
@@ -228,8 +228,8 @@ const GEMINI_LINE_ITEM_SCHEMA = {
 };
 
 const OCR_SYS =
-  "You extract structured procurement line items from a photographed or scanned price list, invoice, quote, or product sheet for a hotel supply portal. " +
-  "Read every product row. For each item capture: product name, description, current/old price and new/negotiated price PER EACH (if a price is quoted per dozen or per case, divide it down to a per-each unit price; if only one price is present put it in currentUnitPrice), quantity, unit of measure, pack size, current vendor and recommended/quoting vendor, and the brand/property name if indicated. " +
+  "You extract structured procurement line items from a photographed or scanned price list, invoice, quote, product sheet, or contract pricing EXHIBIT for a hotel supply portal. " +
+  "Read every product row across all pages and exhibits. For each item capture: product name, description, current/old price and new/negotiated price PER EACH (if a price is quoted per dozen, per case, per pack or per roll, divide it down to a per-each unit price using the count shown; if only one price is present put it in currentUnitPrice), quantity, unit of measure, pack size, current vendor and recommended/quoting vendor, and the brand/property name if indicated. " +
   "Then classify each item into the allowed taxonomy and assign a quality tier. Only include real product line items.\n" +
   "Allowed taxonomy (category -> subcategories):\n";
 
@@ -262,7 +262,7 @@ async function ocr(body: any, provider: string) {
       input_schema: { type: "object", properties: { items: { type: "array", items: LINE_ITEM_SCHEMA } }, required: ["items"] },
     }],
     tool_choice: { type: "tool", name: "return_line_items" },
-    messages: [{ role: "user", content: [part, { type: "text", text: "Extract all product line items from this document." }] }],
+    messages: [{ role: "user", content: [part, { type: "text", text: "Extract all product line items from this document, including any pricing exhibit/schedule. Divide case/pack prices down to per-each." }] }],
   });
   return { items: (toolInput(data, "return_line_items") || {}).items || [], provider };
 }
@@ -288,10 +288,11 @@ const GEMINI_CONTRACT_ITEM = {
   required: ["name"],
 };
 const CONTRACT_SYS =
-  "You extract a vendor price book from a supplier CONTRACT, agreement, rate sheet, or pricing schedule for a hotel supply portal. " +
-  "Identify the vendor/supplier name, a short contract title, and the effective and expiration dates if present. " +
-  "Then extract EVERY priced line item — products and services (e.g. delivery, laundry, fuel surcharge). For each, capture name, description, a per-each/unit price (if a price is quoted per dozen or per case, divide it down to per each), unit of measure, pack size, and any notes. " +
-  "Classify each item into the best category and subcategory from the allowed taxonomy. Only include real priced items.\n" +
+  "You extract a vendor PRICE BOOK from a supplier contract, distribution agreement, rate sheet, or pricing schedule for a hotel-supply portal. " +
+  "Pricing is very often in an EXHIBIT, SCHEDULE, APPENDIX or ATTACHMENT (e.g. 'Exhibit A — Pricing'). Read the ENTIRE document, including every exhibit and pricing table, and extract EVERY priced line item (products and services). " +
+  "Identify the vendor/supplier name, a short title, and the effective/expiration dates if present. " +
+  "For each item capture name, description, and the price PER EACH. If a price is listed per case, pack, carton, dozen, roll, bundle or any multi-unit, you MUST divide it down to a single each using the pack/case count shown (e.g. $40.75 per case of 96 = $0.4245 each): put the per-each value in unitPrice, the original pack in packSize, and the unit basis in uom. If the each-count is not given, put the listed price in unitPrice and state the basis in notes. " +
+  "These contracted per-each prices are the source of truth for price-compliance checks, so be thorough and exact. Classify each item into the best category and subcategory from the allowed taxonomy. Only include real priced items.\n" +
   "Allowed taxonomy (category -> subcategories):\n";
 
 // deno-lint-ignore no-explicit-any
@@ -304,7 +305,7 @@ async function contract(body: any, provider: string) {
   if (provider === "gemini") {
     const data = await callGemini(GEMINI_SMART, {
       systemInstruction: { parts: [{ text: sys }] },
-      contents: [{ role: "user", parts: [part, { text: "Extract the vendor price book from this contract." }] }],
+      contents: [{ role: "user", parts: [part, { text: "Extract the vendor price book from this contract, including any Exhibit/Schedule pricing tables." }] }],
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -340,7 +341,7 @@ async function contract(body: any, provider: string) {
       },
     }],
     tool_choice: { type: "tool", name: "return_contract" },
-    messages: [{ role: "user", content: [part, { type: "text", text: "Extract the vendor price book from this contract." }] }],
+    messages: [{ role: "user", content: [part, { type: "text", text: "Extract the vendor price book from this contract. Pricing is usually in Exhibit A or a pricing schedule — read all pages and divide case/pack prices down to per-each." }] }],
   });
   const out = toolInput(data, "return_contract") || {};
   return { vendorName: out.vendorName || "", title: out.title || "", effectiveDate: out.effectiveDate || "", expirationDate: out.expirationDate || "", items: out.items || [], provider };
