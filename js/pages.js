@@ -1731,6 +1731,26 @@
         } catch (e) { setContractStatus(`❌ ${esc(e.message || e)}`, "err"); return; }
         if (vendorOverride) extracted.vendorName = vendorOverride;
         extracted.source = file.name || "";
+        // Fallback: if the contract pass found no priced lines (common when
+        // pricing lives in an Exhibit A table), retry with line-item OCR, which
+        // reads pricing tables and divides packs/cases down to a per-each price.
+        if (!(extracted.items || []).some((i) => (i.name && String(i.name).trim()) || i.unitPrice)) {
+          if (/\.(pdf|png|jpe?g|webp|gif)$/.test(nm) || /^image\//.test(file.type) || file.type === "application/pdf") {
+            setContractStatus("No price book detected on the first pass — reading the Exhibit/pricing tables line-by-line…");
+            try {
+              const items = await window.AI.ocr(file);
+              if (items && items.length) {
+                extracted.items = items.map((it) => ({
+                  name: it.productName, description: it.description || "",
+                  category: it.category, subcategory: it.subcategory,
+                  unitPrice: +it.currentUnitPrice || +it.newUnitPrice || 0,
+                  uom: it.unitOfMeasure || "Each", packSize: it.packSize || "",
+                }));
+                if (!extracted.vendorName) extracted.vendorName = vendorOverride || baseName;
+              }
+            } catch (_) { /* ignore; will fall to the message below */ }
+          }
+        }
         if (!(extracted.items || []).some((i) => (i.name && String(i.name).trim()) || i.unitPrice)) {
           setContractStatus("No priced line items were found in that contract.", "err"); return;
         }
