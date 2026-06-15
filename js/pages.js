@@ -765,13 +765,32 @@
         return `<div style="margin-top:12px;border-top:1px solid var(--gray-100);padding-top:10px"><div class="cell-strong" style="font-size:12px;margin-bottom:2px">📒 Contract price book</div>${blocks}</div>`;
       };
       const bookVendors = master.filter((v) => contractsCount(v.name));
+      const shopOpts = ["(Unassigned)"].concat((P.SHOPS || []).map((s) => s.shopName));
+      const pubControl = (vname) => canEdit ? `<div style="margin-top:10px;border-top:1px solid var(--gray-100);padding-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select class="approve-select" data-pubshop="${esc(vname)}">${shopOpts.map((o) => `<option>${esc(o)}</option>`).join("")}</select>
+          <button class="btn btn-primary btn-sm" data-pubvendor="${esc(vname)}">📤 Publish price book → catalog</button>
+          <span class="cell-sub" data-pubmsg="${esc(vname)}"></span>
+        </div>` : "";
       const books = bookVendors.length ? `<div class="section-title" style="margin-top:24px">📒 Vendor price books</div>
-        <div class="grid cols-2">${bookVendors.map((v) => `<div class="card"><h3 class="card-title">🏷️ ${esc(v.name)} <span class="badge navy">${esc(v.category)}</span></h3>${priceBook(v.name)}</div>`).join("")}</div>` : "";
+        <div class="grid cols-2">${bookVendors.map((v) => `<div class="card"><h3 class="card-title">🏷️ ${esc(v.name)} <span class="badge navy">${esc(v.category)}</span></h3>${priceBook(v.name)}${pubControl(v.name)}</div>`).join("")}</div>` : "";
 
       return masterTable + books;
     },
     mount() {
       const rerender = () => window.App.renderCurrent();
+      // Publish a vendor's price book into the catalog as SKUs.
+      document.querySelectorAll("[data-pubvendor]").forEach((b) => b.addEventListener("click", async () => {
+        const vname = b.getAttribute("data-pubvendor");
+        const escAttr = (window.CSS && CSS.escape) ? CSS.escape(vname) : vname;
+        const sel = document.querySelector(`[data-pubshop="${escAttr}"]`);
+        const shop = sel && sel.value && sel.value !== "(Unassigned)" ? sel.value : "";
+        const msg = document.querySelector(`[data-pubmsg="${escAttr}"]`);
+        b.disabled = true; if (msg) msg.textContent = "Publishing…";
+        let added = 0;
+        (P.contractsByVendor ? P.contractsByVendor(vname) : []).forEach((c) => { added += (P.publishContractToCatalog(c.id, shop).added || 0); });
+        try { if (window.Store && window.Store.available()) await window.Store.pushAll(); } catch (e) { if (msg) msg.textContent = "⚠️ " + (e.message || e); b.disabled = false; return; }
+        if (msg) msg.innerHTML = `<span class="text-green">✅ Published ${added} item(s) to the catalog${shop ? " under " + esc(shop) : ""} — now on Dashboard, Catalog, Shop View &amp; Savings.</span>`;
+      }));
       const search = document.getElementById("vSearch");
       const catFilter = document.getElementById("vCatFilter");
       const rows = Array.from(document.querySelectorAll("tr[data-vname]"));
