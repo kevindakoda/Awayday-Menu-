@@ -278,7 +278,7 @@
   /* ============================== SKU CATALOG ============================== */
   function filteredSkus() {
     const f = State.catalog;
-    let rows = P.SKUS.slice();
+    let rows = P.scopedSkus().slice();
     const q = f.search.trim().toLowerCase();
     if (q) rows = rows.filter((s) => (s.id + " " + (s.sku || "") + " " + s.productName + " " + s.currentVendor + " " + s.recommendedVendor + " " + s.category + " " + s.subcategory).toLowerCase().includes(q));
     if (f.category) rows = rows.filter((s) => s.category === f.category);
@@ -304,16 +304,16 @@
     render() {
       const f = State.catalog;
       const rows = filteredSkus();
-      const allSubs = Array.from(new Set(P.SKUS.filter((s) => !f.category || s.category === f.category).map((s) => s.subcategory))).sort();
+      const scoped = P.scopedSkus();
+      const allSubs = Array.from(new Set(scoped.filter((s) => !f.category || s.category === f.category).map((s) => s.subcategory))).sort();
       const opt = (val, label, sel) => `<option value="${esc(val)}" ${val === sel ? "selected" : ""}>${esc(label)}</option>`;
       const catOpts = [""].concat(P.CATEGORY_ORDER).map((c) => opt(c, c || "All categories", f.category)).join("");
       const subOpts = `<option value="">All subcategories</option>` + allSubs.map((s) => opt(s, s, f.subcategory)).join("");
-      const shopOpts = `<option value="">All shops</option>` + P.SHOPS.map((s) => opt(s.code, s.shopName, f.shop)).join("");
-      const vendorList = Array.from(new Set(P.SKUS.flatMap((s) => [s.currentVendor, s.recommendedVendor]))).sort();
+      const shopOpts = `<option value="">All shops</option>` + P.scopedShops().map((s) => opt(s.code, s.shopName, f.shop)).join("");
+      const vendorList = Array.from(new Set(scoped.flatMap((s) => [s.currentVendor, s.recommendedVendor]))).sort();
       const vendorOpts = `<option value="">All vendors</option>` + vendorList.map((v) => opt(v, v, f.vendor)).join("");
       const statusOpts = `<option value="">All statuses</option>` + P.STATUSES.map((s) => opt(s, s, f.status)).join("");
 
-      const agg = P.aggregate(rows);
       const sortIcon = (col) => f.sort === col ? (f.dir === "asc" ? " ▲" : " ▼") : "";
       const th = (col, label, cls) => `<th class="sortable ${cls || ""}" data-sort="${col}">${label}${sortIcon(col)}</th>`;
 
@@ -356,12 +356,6 @@
           <div class="toolbar">
             <div class="search"><span class="si">🔍</span><input type="text" id="catalogSearch" placeholder="Search SKU, product, vendor, category…" value="${esc(f.search)}"></div>
             <button class="btn btn-outline btn-sm" id="exportCsv">⬇ Export CSV</button>
-          </div>
-          <div class="grid cols-4" style="margin-bottom:16px">
-            ${U.statCard({ label: "Filtered SKUs", value: fmt.num(agg.skuCount) })}
-            ${U.statCard({ label: "Current Spend", value: fmt.money(agg.baselineSpend) })}
-            ${U.statCard({ label: "New Spend", value: fmt.money(agg.newSpend) })}
-            ${U.statCard({ label: "Savings", value: fmt.money(agg.savingsOpportunity), delta: "▼ " + fmt.pct(agg.savingsPercentage), accent: "green" })}
           </div>
           <div class="table-wrap">
             <table class="data" style="min-width:1180px"><thead><tr>
@@ -466,12 +460,6 @@
     crumb: "Savings Opportunities",
     render() {
       const opps = P.opportunities();
-      const totals = P.aggregate(P.SKUS);
-      const quickWins = opps.filter((o) => o.badges.includes("Quick Win"));
-      const highValue = opps.filter((o) => o.annualSavings >= 8000);
-      const lowRisk = opps.filter((o) => o.risk === "Low");
-      const needsReview = opps.filter((o) => o.badges.includes("Needs Review"));
-      const transitionRisk = opps.filter((o) => o.risk !== "Low");
 
       const views = ["Category", "Subcategory", "Shop", "Brand", "Vendor", "Region", "SKU"];
       const pills = views.map((v) => `<button class="pill ${State.savingsView === v ? "active" : ""}" data-view="${v}">${v}</button>`).join("");
@@ -484,7 +472,7 @@
         Region: (s) => s.region, SKU: (s) => s.productName,
       }[view];
       const groups = {};
-      P.SKUS.forEach((s) => { (groups[keyFn(s)] = groups[keyFn(s)] || []).push(s); });
+      P.scopedSkus().forEach((s) => { (groups[keyFn(s)] = groups[keyFn(s)] || []).push(s); });
       const grouped = Object.keys(groups).map((k) => ({ name: k, ...P.aggregate(groups[k]), rec: P.topVendor(groups[k]) }))
         .sort((a, b) => b.savingsOpportunity - a.savingsOpportunity);
       const maxG = mx(grouped.map((g) => g.savingsOpportunity));
@@ -514,16 +502,6 @@
 
       return `
       <div class="page-head"><h1>Savings Opportunities</h1><p>Prioritized savings across categories, shops, and vendors — segmented by ease, risk, and standardization potential.</p></div>
-      <div class="grid cols-4" style="margin-bottom:8px">
-        ${U.statCard({ label: "Total Opportunity", value: fmt.money(totals.savingsOpportunity), delta: "▼ " + fmt.pct(totals.savingsPercentage), accent: "green", icon: "📉", iconBg: "var(--green-bg)" })}
-        ${U.statCard({ label: "Quick Wins", value: quickWins.length, delta: fmt.money(quickWins.reduce((s, o) => s + o.annualSavings, 0)), deltaClass: "text-green", accent: "green", icon: "⚡", iconBg: "var(--green-bg)" })}
-        ${U.statCard({ label: "High-Value (≥$8K)", value: highValue.length, accent: "blue", icon: "💎", iconBg: "var(--blue-bg)" })}
-        ${U.statCard({ label: "Low-Risk Standardization", value: lowRisk.length, accent: "navy", icon: "🛡️", iconBg: "var(--navy-50)" })}
-      </div>
-      <div class="grid cols-2" style="margin-bottom:18px">
-        ${U.statCard({ label: "Items Requiring Local Review", value: needsReview.length, accent: "amber", icon: "👀", iconBg: "var(--amber-bg)" })}
-        ${U.statCard({ label: "Items with Vendor Transition Risk", value: transitionRisk.length, accent: "amber", icon: "⚠️", iconBg: "var(--amber-bg)", deltaClass: "text-amber" })}
-      </div>
 
       <div class="card" style="margin-bottom:18px">
         <h3 class="card-title">📐 Roll-up by view</h3>
@@ -599,8 +577,6 @@
       const shops = P.shops();
       const code = params[0] ? decodeURIComponent(params[0]) : null;
       if (!code) {
-        const tot = P.aggregate(P.SKUS);
-        const reviewed = shops.filter((s) => s.implementationStatus && s.implementationStatus !== "Not Reviewed").length;
         const basis = State.shopBasis === "actual" ? "actual" : "plan";
         const cards = shops.map((s) => `<div class="cat-tile-wrap" style="position:relative">
           <a class="cat-tile" href="#/shops/${encodeURIComponent(s.code)}">
@@ -620,13 +596,7 @@
           </div>
           ${shopBasisToggle(basis)}
           ${basis === "actual" ? actualVolumeView() : `
-            <div class="grid cols-4" style="margin-bottom:18px">
-              ${U.statCard({ label: "Total Savings Opportunity", value: fmt.money(tot.savingsOpportunity), delta: "▼ " + fmt.pct(tot.savingsPercentage) + " vs current", accent: "green", icon: "📉", iconBg: "var(--green-bg)" })}
-              ${U.statCard({ label: "Current Annual Spend", value: fmt.money(tot.baselineSpend), accent: "navy", icon: "💵", iconBg: "var(--navy-50)" })}
-              ${U.statCard({ label: "Projected New Spend", value: fmt.money(tot.newSpend), accent: "blue", icon: "🤝", iconBg: "var(--blue-bg)" })}
-              ${U.statCard({ label: "Shops", value: shops.length, delta: reviewed + " reviewed", deltaClass: "text-muted", accent: "navy", icon: "🏬", iconBg: "var(--navy-50)" })}
-            </div>
-            <div class="cell-sub" style="margin:-6px 0 14px">Savings opportunity is projected on each shop's annual purchase volume (quantity × negotiated price delta).</div>`}
+            <div class="cell-sub" style="margin:0 0 14px">Savings opportunity is projected on each shop's annual purchase volume (quantity × negotiated price delta).</div>`}
           <div class="grid cols-3">${cards}</div>`;
       }
       const shop = shops.find((s) => s.code === code);

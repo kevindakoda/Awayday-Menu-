@@ -417,8 +417,32 @@
     }).sort((a, b) => b.savingsOpportunity - a.savingsOpportunity);
   }
 
+  // ---- Per-user data scope (shop presidents see only their own shop) ----
+  // SCOPE is null for full-access users (Procurement Admin / Category Manager).
+  // For brand users it narrows every brand-facing roll-up to one shop or region.
+  let SCOPE = null;
+  function setScope(scope) {
+    SCOPE = scope && scope.type && scope.type !== "all" ? scope : null;
+  }
+  function getScope() { return SCOPE; }
+  function inScope(s) {
+    if (!SCOPE) return true;
+    if (SCOPE.type === "shop") {
+      return s.shopCode === SCOPE.shopCode || (s.shop || "") === (SCOPE.shop || "");
+    }
+    if (SCOPE.type === "region") return (s.region || "") === (SCOPE.region || "");
+    return true;
+  }
+  function scopedSkus() { return SCOPE ? SKUS.filter(inScope) : SKUS; }
+  function scopedShops() {
+    if (!SCOPE) return SHOPS;
+    if (SCOPE.type === "region") return SHOPS.filter((sh) => (sh.region || "") === (SCOPE.region || ""));
+    return SHOPS.filter((sh) => sh.code === SCOPE.shopCode || sh.shopName === SCOPE.shop);
+  }
+
   function shops() {
-    return SHOPS.map((sh) => {
+    const scoped = SCOPE ? scopedShops() : SHOPS;
+    return scoped.map((sh) => {
       const rows = SKUS.filter((s) => s.shopCode === sh.code);
       const agg = aggregate(rows);
       const cats = Array.from(new Set(rows.map((r) => r.category)));
@@ -842,7 +866,7 @@
   // Derived opportunity records, one per subcategory+shop cluster with badges.
   function opportunities() {
     const groups = {};
-    SKUS.forEach((s) => {
+    scopedSkus().forEach((s) => {
       const key = s.category + "|" + s.subcategory + "|" + s.shopCode;
       (groups[key] = groups[key] || []).push(s);
     });
@@ -1039,12 +1063,16 @@
   }
 
   /* ------------------------------ Roles config ------------------------------ */
+  // brandOnly roles see ONLY the Brand View group; the entire Procurement
+  // section is hidden from them. "dashboard" in their pages only unlocks the
+  // Market Insights brand page (Executive Summary/Dashboard are gated out by
+  // the brandOnly group check in app.js).
   const ROLES = {
     "Procurement Admin": { label: "Procurement Admin", desc: "View and edit everything.", pages: "*" },
     "Category Manager": { label: "Category Manager", desc: "View all data, edit assigned categories.", pages: ["dashboard", "categories", "catalog", "savings", "vendors", "comparison", "tracker"] },
-    "Regional Manager": { label: "Regional Manager", desc: "View assigned region and shops.", pages: ["dashboard", "categories", "catalog", "savings", "shops", "tracker"] },
-    "Shop Manager": { label: "Shop Manager", desc: "View only shop-level data and action items.", pages: ["shops", "catalog", "comparison"] },
-    Executive: { label: "Executive", desc: "View dashboard, savings summary, implementation status.", pages: ["dashboard", "savings", "tracker"] },
+    "Regional Manager": { label: "Regional Manager", desc: "Brand View for the assigned region only.", pages: ["catalog", "savings", "shops", "comparison", "dashboard"], brandOnly: true },
+    "Shop Manager": { label: "Shop Manager", desc: "Brand View for one assigned shop only.", pages: ["catalog", "savings", "shops", "comparison", "dashboard"], brandOnly: true },
+    Executive: { label: "Executive", desc: "Brand president — Brand View for their own shop.", pages: ["catalog", "savings", "shops", "comparison", "dashboard"], brandOnly: true },
   };
 
   /* -------------------------------- CSV utils -------------------------------- */
@@ -1664,6 +1692,10 @@
     dataQuality,
     subcategoriesFor,
     shops,
+    setScope,
+    getScope,
+    scopedSkus,
+    scopedShops,
     upsertBrand,
     nextBrandCode,
     nextSkuId,

@@ -128,11 +128,12 @@
 
   async function onAuthed(session) {
     const client = sb();
-    let role = "Shop Manager", name = session.user.email, status = "pending";
+    let role = "Shop Manager", name = session.user.email, status = "pending", shop = "", region = "";
     try {
       const { data: profile } = await client.from("profiles").select("*").eq("id", session.user.id).maybeSingle();
       if (profile) {
         role = profile.role || role; name = profile.full_name || name; status = profile.status || "pending";
+        shop = profile.shop || ""; region = profile.region || "";
       } else {
         // First sign-in: create a PENDING profile (default role). The user
         // can't enter until an admin approves them on the Security page.
@@ -147,8 +148,8 @@
     // Access gate: only approved users enter the app.
     if (status !== "approved") { showAccessScreen(session, name, status); return; }
 
-    window.CURRENT_USER = { email: session.user.email, name, role, id: session.user.id };
-    if (window.AppState) window.AppState.role = role;
+    window.CURRENT_USER = { email: session.user.email, name, role, id: session.user.id, shop, region };
+    if (window.AppState) { window.AppState.role = role; window.AppState.userShop = shop; window.AppState.userRegion = region; }
 
     const root = $("loginScreen");
     const app = $("appRoot");
