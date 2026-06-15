@@ -29,6 +29,45 @@
 
   const PAGES = (window.PAGES = {});
 
+  /* ---------------- Shared smart spend ingestion (any format) ----------------
+     Reads CSV/XLSX (every tab), PDF/image, or text into AP spend. For
+     workbooks it processes EACH sheet on its own — only sheets that look like
+     line-item spend (amount + item + date/period) are imported, so summary /
+     order-total / defect tabs are skipped and never double-count. `opts.vendor`
+     stamps the report's vendor onto rows that don't carry one. */
+  async function ingestSpendFile(file, opts) {
+    opts = opts || {};
+    const name = (file.name || "").toLowerCase();
+    const isDoc = /\.(pdf|png|jpe?g)$/.test(name) || /^(image|application\/pdf)/.test(file.type || "");
+    const isText = /\.(txt|tsv)$/.test(name) && !/csv/.test(file.type || "");
+    const aiReady = window.AI && window.Store && window.Store.available();
+    if (isDoc) return Object.assign(P.ingestApItems(await window.AI.extractSpend({ file }), opts), { sheets: ["document"] });
+    if (isText) return Object.assign(P.ingestApItems(await window.AI.extractSpend({ text: await file.text() }), opts), { sheets: ["text"] });
+
+    let sheets = [];
+    if (name.endsWith(".csv") || file.type === "text/csv") {
+      sheets = [{ name: "CSV", rows: P.parseCsv(await file.text()) }];
+    } else {
+      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      sheets = wb.SheetNames.map((sn) => ({ name: sn, rows: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: false, defval: "" }) }));
+    }
+    let added = 0; const used = [];
+    for (const sh of sheets) {
+      const rows = sh.rows; if (!rows || rows.length < 2) continue;
+      const hdr = (rows[0] || []).map((h) => String(h == null ? "" : h).toLowerCase());
+      const has = (...ns) => hdr.some((h) => ns.some((n) => h === n || h.includes(n)));
+      const amountish = has("ext_price", "ext price", "extended", "amount", "spend", "sales", "total", "value");
+      const itemish = has("sku", "description", "item", "category");
+      const dateish = has("date", "period", "month");
+      if (!(amountish && itemish && dateish)) continue;
+      let mapping = null;
+      if (aiReady) { try { mapping = await window.AI.mapColumns(rows[0], rows.slice(1, 25)); } catch (_) { mapping = null; } }
+      const r = P.ingestApRows(rows, mapping, opts);
+      if (r.added) { added += r.added; used.push(sh.name + " (" + r.added + ")"); }
+    }
+    return { added, sheets: used };
+  }
+
   /* ============================== DASHBOARD ============================== */
   PAGES.dashboard = {
     title: "Dashboard",
@@ -2434,53 +2473,14 @@
       const file = document.getElementById("apFile");
       const msg = document.getElementById("apMsg");
 
-      // Read a spreadsheet (CSV/XLSX) into a header+rows matrix.
-      async function readMatrix(f) {
-        const name = f.name.toLowerCase();
-        if (name.endsWith(".csv") || f.type === "text/csv") return P.parseCsv(await f.text());
-        const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
-        let matrix = [];
-        wb.SheetNames.forEach((sn, i) => {
-          const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: false, defval: "" });
-          matrix = i === 0 ? rows : matrix.concat(rows.slice(1));
-        });
-        return matrix;
-      }
-
       if (btn && file) {
         btn.addEventListener("click", () => file.click());
         file.addEventListener("change", async () => {
           const f = file.files && file.files[0];
           if (!f) return;
-          const name = f.name.toLowerCase();
-          const isDoc = /\.(pdf|png|jpe?g)$/.test(name) || /^(image|application\/pdf)/.test(f.type || "");
-          const isTable = /\.(csv|xlsx|xls)$/.test(name) || /csv|sheet|excel/.test(f.type || "");
-          const aiReady = window.AI && window.Store && window.Store.available();
+          msg.textContent = "🤖 Reading " + f.name + " (all tabs)…";
           try {
-            let added = 0;
-            if (isDoc) {
-              // Documents/images: Claude extracts dated spend lines directly.
-              msg.textContent = "🤖 Claude is reading " + f.name + "…";
-              const items = await window.AI.extractSpend({ file: f });
-              ({ added } = P.ingestApItems(items));
-            } else if (isTable) {
-              const matrix = await readMatrix(f);
-              if (!matrix.length) { msg.textContent = "⚠️ Could not read any rows."; return; }
-              let mapping = null;
-              if (aiReady) {
-                try {
-                  msg.textContent = "🤖 Claude is mapping your columns…";
-                  mapping = await window.AI.mapColumns(matrix[0], matrix.slice(1, 25));
-                } catch (_) { mapping = null; } // fall back to header matching
-              }
-              msg.textContent = "Importing rows…";
-              ({ added } = P.ingestApRows(matrix, mapping));
-            } else {
-              // Unknown/free-text (.txt/.tsv/etc.): let Claude parse the text.
-              msg.textContent = "🤖 Claude is reading your data…";
-              const items = await window.AI.extractSpend({ text: await f.text() });
-              ({ added } = P.ingestApItems(items));
-            }
+            const { added } = await ingestSpendFile(f, {});
             if (!added) { msg.textContent = "⚠️ No dated spend lines were found in that file."; return; }
             msg.textContent = `Saving ${added} lines…`;
             if (window.Store && window.Store.available()) await window.Store.pushAp();
@@ -3029,11 +3029,13 @@
       const head = `<div class="page-head"><h1>🧾 Vendor Spend <span class="badge navy" style="vertical-align:middle">Sales reports</span></h1>
         <p>Upload vendor sales reports to see spend, volume, and SKU trends — reconciled to your shops — so leadership can spot expenses and cost-savings opportunities at a glance.</p></div>`;
       const upload = canEdit ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
+          <input type="text" id="vsVendorName" placeholder="Vendor for this report (e.g. SoJo)" style="padding:7px 10px;border:1px solid var(--gray-200);border-radius:9px;font-size:13px;min-width:200px">
           <input type="file" id="vsFile" accept=".csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg,.txt,.tsv" style="display:none">
           <button class="btn btn-primary btn-sm" id="vsUpload">🤖 Upload vendor sales report</button>
           ${hasData ? `<button class="btn btn-outline btn-sm" id="vsClear">🗑 Clear spend data</button>` : ""}
           <span class="cell-sub" id="vsMsg"></span>
-        </div>` : "";
+        </div>
+        <div class="cell-sub" style="margin:-8px 0 16px">Reads every tab — only true line-item sheets (amount + item + date) are imported; summary/order/defect tabs are skipped. Customer/property names fuzzy-match to your brands.</div>` : "";
 
       if (!hasData) {
         return `${head}${upload}<div class="card"><h3 class="card-title">Get started</h3>
@@ -3119,50 +3121,25 @@
       const btn = document.getElementById("vsUpload");
       const file = document.getElementById("vsFile");
       const msg = document.getElementById("vsMsg");
-      async function readMatrix(f) {
-        const name = f.name.toLowerCase();
-        if (name.endsWith(".csv") || f.type === "text/csv") return P.parseCsv(await f.text());
-        const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
-        let matrix = [];
-        wb.SheetNames.forEach((sn, i) => {
-          const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: false, defval: "" });
-          matrix = i === 0 ? rows : matrix.concat(rows.slice(1));
-        });
-        return matrix;
-      }
       if (btn && file) {
         btn.addEventListener("click", () => file.click());
         file.addEventListener("change", async () => {
           const f = file.files && file.files[0];
           if (!f) return;
-          const name = f.name.toLowerCase();
-          const isDoc = /\.(pdf|png|jpe?g)$/.test(name) || /^(image|application\/pdf)/.test(f.type || "");
-          const isTable = /\.(csv|xlsx|xls)$/.test(name) || /csv|sheet|excel/.test(f.type || "");
-          const aiReady = window.AI && window.Store && window.Store.available();
+          const vendor = ((document.getElementById("vsVendorName") || {}).value || "").trim();
+          msg.textContent = "🤖 Reading " + f.name + " (all tabs)…";
           try {
-            let added = 0;
-            if (isDoc) {
-              msg.textContent = "🤖 Claude is reading " + f.name + "…";
-              ({ added } = P.ingestApItems(await window.AI.extractSpend({ file: f })));
-            } else if (isTable) {
-              const matrix = await readMatrix(f);
-              if (!matrix.length) { msg.textContent = "⚠️ Could not read any rows."; return; }
-              let mapping = null;
-              if (aiReady) { try { msg.textContent = "🤖 Claude is mapping the columns…"; mapping = await window.AI.mapColumns(matrix[0], matrix.slice(1, 25)); } catch (_) { mapping = null; } }
-              msg.textContent = "Importing…";
-              ({ added } = P.ingestApRows(matrix, mapping));
-            } else {
-              msg.textContent = "🤖 Claude is reading your data…";
-              ({ added } = P.ingestApItems(await window.AI.extractSpend({ text: await f.text() })));
-            }
-            if (!added) { msg.textContent = "⚠️ No spend lines found in that file."; return; }
+            const { added, sheets } = await ingestSpendFile(f, { vendor });
+            if (!added) { msg.textContent = "⚠️ No line-item spend found. Make sure a tab has amount + item + date columns."; return; }
             msg.textContent = `Saving ${added} lines…`;
             if (window.Store && window.Store.available()) await window.Store.pushAp();
+            State.vsLastImport = `Imported ${added} line(s) from: ${(sheets || []).join(", ") || "file"}.`;
             rerender();
           } catch (e) { msg.textContent = "⚠️ " + (e.message || e); }
           finally { file.value = ""; }
         });
       }
+      if (State.vsLastImport) { const mm = document.getElementById("vsMsg"); if (mm) mm.innerHTML = `<span class="text-green">✅ ${esc(State.vsLastImport)}</span>`; State.vsLastImport = null; }
       const clr = document.getElementById("vsClear");
       if (clr) clr.addEventListener("click", async () => {
         if (!confirm("Remove ALL uploaded vendor/AP spend data?")) return;

@@ -1220,20 +1220,21 @@
   // Ingest a header+rows matrix (from CSV/XLSX) into AP. If `mapping` (from
   // Claude's mapcols) is supplied, use those 0-based column indices; otherwise
   // fall back to flexible header-name matching.
-  function ingestApRows(matrix, mapping) {
+  function ingestApRows(matrix, mapping, opts) {
     if (!matrix || !matrix.length) return { added: 0 };
+    opts = opts || {};
     const header = matrix[0].map((h) => String(h == null ? "" : h).trim().toLowerCase());
     const find = (names) => { for (const n of names) { const i = header.findIndex((h) => h === n || h.includes(n)); if (i >= 0) return i; } return -1; };
     const valid = (i) => typeof i === "number" && i >= 0;
     const map = mapping || {};
-    const di = valid(map.date) ? map.date : find(["date", "invoice date", "posting date", "period", "month"]);
-    const si = valid(map.shop) ? map.shop : find(["shop", "property", "location", "store", "brand"]);
-    const ci = valid(map.category) ? map.category : find(["category"]);
-    const subi = valid(map.subcategory) ? map.subcategory : find(["subcategory", "sub category", "sub-category"]);
+    const di = valid(map.date) ? map.date : find(["date", "invoice date", "posting date", "ship date", "shipdate", "period", "finperiod", "month"]);
+    const si = valid(map.shop) ? map.shop : find(["shop", "customer", "property", "company", "account", "location", "store", "brand"]);
+    const ci = valid(map.category) ? map.category : find(["category", "inventory_type", "inventory type"]);
+    const subi = valid(map.subcategory) ? map.subcategory : find(["subcategory", "sub category", "sub-category", "inventory_type_and_cat"]);
     const vi = valid(map.vendor) ? map.vendor : find(["vendor", "supplier", "payee"]);
-    const ai = valid(map.amount) ? map.amount : find(["amount", "spend", "total", "cost", "ext price", "extended", "value"]);
-    const qi = valid(map.quantity) ? map.quantity : find(["quantity", "qty", "units"]);
-    const desi = valid(map.description) ? map.description : find(["description", "item", "product", "memo", "detail"]);
+    const ai = valid(map.amount) ? map.amount : find(["ext_price", "ext price", "extended", "amount", "spend", "sales", "total", "cost", "value"]);
+    const qi = valid(map.quantity) ? map.quantity : find(["qty", "quantity", "converted_qty", "units"]);
+    const desi = valid(map.description) ? map.description : find(["sku_description", "description", "item", "product", "memo", "detail"]);
     const ski = valid(map.sku) ? map.sku : find(["sku", "item number", "item #", "item code", "product id", "product code", "part", "mpn", "material"]);
     let added = 0;
     for (let r = 1; r < matrix.length; r++) {
@@ -1245,6 +1246,7 @@
         vendor: get(vi), amount: get(ai), quantity: get(qi), description: get(desi), sku: get(ski),
       });
       if (!rec.date && !rec.amount) continue;
+      if (!rec.vendor && opts.vendor) rec.vendor = opts.vendor;   // stamp the report's vendor
       resolveApShop(rec);
       AP.push(rec);
       added++;
@@ -1254,11 +1256,13 @@
 
   // Ingest already-normalized line items (from Claude's `spend` extraction of a
   // document / free text). Each item: {date, shop, vendor, category, ...}.
-  function ingestApItems(items) {
+  function ingestApItems(items, opts) {
+    opts = opts || {};
     let added = 0;
     (items || []).forEach((it) => {
       const rec = makeApRow(it);
       if (!rec.date && !rec.amount) return;
+      if (!rec.vendor && opts.vendor) rec.vendor = opts.vendor;
       resolveApShop(rec);
       AP.push(rec);
       added++;
