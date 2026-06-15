@@ -2970,16 +2970,26 @@
       const atRiskSavings = Math.round(atRisk.reduce((a, s) => a + s.annualSavings, 0));
       const market = (P.MARKET || [])[0];
 
-      const hero = `<div class="page-head hero">
-        <div class="hero-eyebrow">⚓ Rental President Briefing</div>
-        <h1>Executive Summary</h1>
-        <p>Your expenses and cost-savings opportunities at a glance — across catalog pricing, shops, vendors, and invoiced spend.</p>
-        <div class="hero-stats">
-          <div><div class="hs-num">${fmt.money(tot.savingsOpportunity)}</div><div class="hs-lbl">Identified savings</div></div>
-          <div class="hs-div"></div>
-          <div><div class="hs-num" style="color:#9fe0cb">${fmt.pct(tot.savingsPercentage)}</div><div class="hs-lbl">vs. baseline spend</div></div>
-          <div class="hs-div"></div>
-          <div><div class="hs-num">${fmt.money(tot.baselineSpend)}</div><div class="hs-lbl">Annual spend analyzed</div></div>
+      const hero = `<div class="shader-hero">
+        <canvas class="shader-hero-canvas" id="heroCanvas"></canvas>
+        <div class="shader-hero-overlay">
+          <div class="sh-badge animate-fade-in-down"><span>⚓</span> Rental President Briefing</div>
+          <h1 class="sh-headline">
+            <span class="sh-line1 animate-fade-in-up sh-delay-200">Decentralized buying,</span>
+            <span class="sh-line2 animate-fade-in-up sh-delay-400">centralized savings.</span>
+          </h1>
+          <p class="sh-subtitle animate-fade-in-up sh-delay-600">See every dollar of spend across your shops and vendors — and exactly where <b>${fmt.money(tot.savingsOpportunity)}</b> of savings is hiding.</p>
+          <div class="sh-buttons animate-fade-in-up sh-delay-800">
+            <a class="sh-btn-primary" href="#/savings">📉 View savings opportunities</a>
+            <a class="sh-btn-secondary" href="#/ask">🤖 Ask the AI analyst</a>
+          </div>
+          <div class="sh-stats animate-fade-in-up sh-delay-800">
+            <div><div class="hs-num">${fmt.money(tot.savingsOpportunity)}</div><div class="hs-lbl">Identified savings</div></div>
+            <div class="hs-div"></div>
+            <div><div class="hs-num" style="color:#9fe0cb">${fmt.pct(tot.savingsPercentage)}</div><div class="hs-lbl">vs. baseline spend</div></div>
+            <div class="hs-div"></div>
+            <div><div class="hs-num">${fmt.money(tot.baselineSpend)}</div><div class="hs-lbl">Annual spend analyzed</div></div>
+          </div>
         </div>
       </div>`;
 
@@ -3032,6 +3042,10 @@
             <a class="badge blue" href="#/quality" style="text-decoration:none">🧹 Data Quality</a>
           </div>
         </div>`;
+    },
+    mount() {
+      const canvas = document.getElementById("heroCanvas");
+      if (canvas && window.ShaderHero) window.ShaderHero.mount(canvas);
     },
   };
 
