@@ -656,6 +656,7 @@
   // prices). Optionally scope to one vendor. Returns flags sorted by the
   // biggest price spread first.
   function normName(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+  const GENERIC_VENDORS = new Set(["", "—", "-", "current local vendor", "local vendor", "various", "n/a", "na", "unknown", "tbd"]);
   function vendorDuplicates(vendorFilter) {
     const only = vendorFilter ? String(vendorFilter).toLowerCase() : null;
     const map = {};
@@ -663,7 +664,7 @@
     // Catalog rows keyed by vendor + sku and vendor + product name.
     SKUS.forEach((s) => {
       const vendor = (s.currentVendor || "").trim();
-      if (!vendor || (only && vendor.toLowerCase() !== only)) return;
+      if (!vendor || GENERIC_VENDORS.has(vendor.toLowerCase()) || (only && vendor.toLowerCase() !== only)) return;
       const v = vendor.toLowerCase();
       const rec = { source: "Catalog", vendor, sku: s.sku || "", name: s.productName, shop: s.shop || "", price: +s.currentUnitPrice || 0, uom: s.unitOfMeasure, pack: s.packSize };
       if (s.sku) add("SKU" + v + "" + s.sku.toLowerCase(), rec);
@@ -672,22 +673,12 @@
     // Contract / invoice price-book items keyed by vendor + name.
     CONTRACTS.forEach((c) => {
       const vendor = (c.vendorName || "").trim();
-      if (!vendor || (only && vendor.toLowerCase() !== only)) return;
+      if (!vendor || GENERIC_VENDORS.has(vendor.toLowerCase()) || (only && vendor.toLowerCase() !== only)) return;
       const v = vendor.toLowerCase();
       (c.items || []).forEach((it) => {
         const rec = { source: "Contract: " + (c.title || c.id), vendor, sku: "", name: it.name, shop: "", price: +it.unitPrice || 0, uom: it.uom, pack: it.packSize };
         if (it.name) add("NAME" + v + "" + normName(it.name), rec);
       });
-    });
-    // Vendor sales-report (AP) lines keyed by vendor + sku and vendor + product.
-    AP.forEach((r) => {
-      const vendor = (r.vendor || "").trim();
-      if (!vendor || (only && vendor.toLowerCase() !== only)) return;
-      const v = vendor.toLowerCase();
-      const unit = (r.quantity > 0) ? (r.amount / r.quantity) : (+r.amount || 0);
-      const rec = { source: "Vendor report", vendor, sku: r.sku || "", name: r.description || r.sku || "", shop: r.shop || "", price: round(unit), uom: "", pack: "" };
-      if (r.sku) add("SKU" + v + "" + r.sku.toLowerCase(), rec);
-      if (r.description) add("NAME" + v + "" + normName(r.description), rec);
     });
     const flags = [];
     Object.keys(map).forEach((k) => {
@@ -1147,6 +1138,41 @@
 
   function apVendors() { return Array.from(new Set(AP.map((r) => r.vendor).filter(Boolean))).sort(); }
 
+  // Pricing discrepancies straight from the sales report: the SAME item invoiced
+  // at different per-each prices across shops/periods. The headline savings is
+  // what you'd recover if every line matched the lowest per-each actually paid.
+  function apPriceDiscrepancies(vendorFilter, opts) {
+    opts = opts || {};
+    const minVar = opts.minVar != null ? opts.minVar : 0.05; // ignore <5% spread
+    const rows = AP.filter((r) => +r.amount > 0 && +r.quantity > 0 && (!vendorFilter || vendorFilter === "All" || r.vendor === vendorFilter));
+    const groups = {};
+    rows.forEach((r) => {
+      const key = (r.sku || normName(r.description)); if (!key) return;
+      const each = r.amount / r.quantity;
+      const g = groups[key] || (groups[key] = { sku: r.sku || "", name: r.description || r.sku || "", vendor: r.vendor || "", category: r.categoryGroup || "", lines: [], shops: {}, spend: 0, qty: 0 });
+      g.lines.push({ shop: r.shop, each, qty: r.quantity, amount: r.amount });
+      g.shops[r.shop || "—"] = true; g.spend += r.amount; g.qty += r.quantity;
+    });
+    const out = [];
+    Object.keys(groups).forEach((k) => {
+      const g = groups[k];
+      const eaches = g.lines.map((l) => l.each).filter((e) => e > 0);
+      if (eaches.length < 2) return;
+      const min = Math.min(...eaches), max = Math.max(...eaches);
+      if (min <= 0 || (max - min) < min * minVar) return;
+      const potential = round(g.lines.reduce((a, l) => a + Math.max(0, l.each - min) * l.qty, 0));
+      out.push({
+        sku: g.sku, name: g.name, vendor: g.vendor, category: g.category,
+        shops: Object.keys(g.shops).length, lines: g.lines.length,
+        min: round(min, 4), max: round(max, 4), spread: round(max - min, 4),
+        ratio: min > 0 ? round(max / min, 1) : 0, avg: round(g.spend / g.qty, 4),
+        spend: round(g.spend), potential,
+      });
+    });
+    out.sort((a, b) => b.potential - a.potential);
+    return { rows: out, total: round(out.reduce((a, x) => a + x.potential, 0)) };
+  }
+
   // Price compliance: compare each invoiced AP line to the vendor's contracted
   // price on a normalized PER-EACH basis (pack/case sizes divided out via the
   // UoM parser). Flags overpayments (paid above contract), off-contract /
@@ -1506,6 +1532,7 @@
     apSavingsAll,
     apVendorSummary,
     apVendors,
+    apPriceDiscrepancies,
     priceCompliance,
     VENDOR_CATEGORIES,
     VENDORS_DB,

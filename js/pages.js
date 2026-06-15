@@ -3047,7 +3047,7 @@
       const vOpts = [`<option value="All" ${sel === "All" ? "selected" : ""}>All vendors</option>`].concat(P.apVendors().map((v) => `<option ${v === sel ? "selected" : ""}>${esc(v)}</option>`)).join("");
       const m = P.apVendorSummary(sel);
       const unmatched = P.unmatchedApShops();
-      const dups = P.vendorDuplicates(sel === "All" ? null : sel);
+      const disc = P.apPriceDiscrepancies(sel);
 
       const trend = m.trend.slice(-12);
       const maxTrend = mx(trend.map((t) => t.amount));
@@ -3073,13 +3073,19 @@
           </tr>`).join("")}
           </tbody></table></div></div>` : "";
 
-      const dupPanel = dups.length ? `<div class="card" style="margin-bottom:16px;border-left:3px solid var(--red)">
-          <h3 class="card-title">🚩 Duplicate SKUs / products — same vendor (${dups.length})</h3>
-          <div class="table-wrap" style="border:none"><table class="data" style="min-width:640px"><thead><tr><th>Flag</th><th>Product</th><th>Vendor</th><th class="num">Seen</th><th class="num">Price range</th></tr></thead><tbody>
-          ${dups.slice(0, 12).map((d) => `<tr><td><span class="badge ${d.kind === "Same SKU" ? "red" : "amber"}">${esc(d.kind)}</span></td>
-            <td class="cell-strong">${esc(d.name)}${d.sku ? ` <span class="mono cell-sub">${esc(d.sku)}</span>` : ""}</td><td>${esc(d.vendor)}</td>
-            <td class="num">${d.count}×</td><td class="num">${d.spread > 0 ? `<span class="text-red">${fmt.money(d.min, 2)}–${fmt.money(d.max, 2)}</span>` : fmt.money(d.min, 2)}</td></tr>`).join("")}
-          </tbody></table></div></div>` : "";
+      const dupPanel = disc.rows.length ? `<div class="card" style="margin-bottom:16px;border-left:3px solid var(--sand)">
+          <h3 class="card-title">💸 Price discrepancies — same SKU, different price (${disc.rows.length})</h3>
+          <p class="cell-sub" style="margin-top:-4px">The same item invoiced at different per-each prices across shops/periods. Aligning every line to the lowest per-each actually paid would recover about <b class="text-green">${fmt.money(disc.total)}</b>.</p>
+          <div class="table-wrap" style="border:none"><table class="data" style="min-width:720px"><thead><tr><th>Product</th><th>SKU</th><th class="num">Shops</th><th class="num">Low/ea</th><th class="num">High/ea</th><th class="num">Spread</th><th class="num">Recover</th></tr></thead><tbody>
+          ${disc.rows.slice(0, 15).map((d) => `<tr>
+            <td class="cell-strong">${esc(d.name)}<div class="cell-sub">${esc(d.vendor || "—")}${d.category ? " · " + esc(d.category) : ""}</div></td>
+            <td class="mono cell-sub">${esc(d.sku || "—")}</td>
+            <td class="num">${d.shops}</td>
+            <td class="num">${fmt.money(d.min, 2)}</td>
+            <td class="num text-red">${fmt.money(d.max, 2)} <span class="cell-sub">(${d.ratio}×)</span></td>
+            <td class="num">${fmt.money(d.spread, 2)}</td>
+            <td class="num cell-strong text-green">${fmt.money(d.potential)}</td></tr>`).join("")}
+          </tbody></table></div>${disc.rows.length > 15 ? `<div class="cell-sub" style="margin-top:8px">+ ${disc.rows.length - 15} more…</div>` : ""}</div>` : "";
 
       return `${head}${upload}
         <div class="toolbar"><div class="field" style="margin:0;min-width:240px"><label>Vendor</label><select id="vsVendor" class="approve-select" style="max-width:none;width:100%">${vOpts}</select></div></div>
