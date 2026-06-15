@@ -942,6 +942,13 @@
           <div><b>Recommended savings opportunity:</b> switch to ${esc(sku.recommendedVendor)} to save
           <b>${fmt.pct(sku.savingsPercentage)}</b> on ${esc(sku.productName)}.</div>
         </div>
+        ${(() => {
+          const opts = P.vendorOptionsForSub ? P.vendorOptionsForSub(sku.subcategory) : [];
+          if (!opts.length) return "";
+          return `<div class="card" style="margin-bottom:18px"><h3 class="card-title">🏷️ Vendor options for ${esc(sku.subcategory)} <span class="cell-sub">— a menu, not forced</span></h3>
+            <div class="tag-cats">${opts.map((o) => `<span class="badge ${o === sku.recommendedVendor ? "green" : "navy"}">${esc(o)}${o === sku.recommendedVendor ? " ★" : ""}</span>`).join("")}</div>
+            <div class="cell-sub" style="margin-top:8px">Recommended vendors seen for this sub-category across shops — pick whichever fits; nothing is forced.</div></div>`;
+        })()}
         <div class="compare-grid">
           ${col("Current Product", "current", {
             img: "📦", product: sku.productName, vendor: sku.currentVendor,
@@ -1199,6 +1206,17 @@
         </div>
         <div class="drop-zone" id="contractDrop" style="margin-top:12px"><div class="di">📑</div><div style="margin:6px 0">Drag &amp; drop a contract here</div><div class="cell-sub">.pdf · images · .xlsx · .csv</div></div>
         <div id="contractResult" style="margin-top:12px"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <h3 class="card-title">📑 Upload Shop-by-Shop master (per-tab)</h3>
+        <p class="text-muted" style="font-size:12.5px;margin:0 0 10px">For multi-tab “shop-by-shop” workbooks (e.g. Disposables Master). Each shop tab between the <span class="mono">Shop Views »</span> separators is imported as that shop's catalog — the header row is auto-detected and each SKU's <b>winning / recommended vendor</b> is captured. Any <b>new vendor</b> is flagged for your confirmation before it's added to the vendor list.</p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+          <div class="field" style="margin:0;min-width:200px"><label>Category for this file</label><input type="text" id="sbsCategory" value="Disposables"></div>
+          <label class="btn btn-primary btn-sm">Choose workbook<input type="file" id="sbsFile" accept=".xlsx,.xls" hidden></label>
+          <span class="cell-sub" id="sbsMsg"></span>
+        </div>
+        <div id="sbsResult" style="margin-top:12px"></div>
       </div>
 
       <div class="grid cols-2">
@@ -1524,6 +1542,56 @@
           setStatus(`❌ ${esc(e.message || e)}`, "err");
         }
       };
+
+      // ---- Shop-by-Shop master importer (tab-by-tab) ----
+      const newVendorConfirmHTML = (news) => {
+        const cats = P.VENDOR_CATEGORIES;
+        return `<div class="card" style="border-left:3px solid var(--sand)">
+          <h3 class="card-title">🆕 New vendors found — confirm before adding (${news.length})</h3>
+          <p class="cell-sub" style="margin-top:-4px">These recommended vendors aren't in your vendor list yet. Pick a category and add the ones you want.</p>
+          <div class="table-wrap" style="border:none"><table class="data" style="min-width:480px"><thead><tr><th></th><th>Vendor</th><th>Category</th></tr></thead><tbody>
+          ${news.map((n, i) => `<tr><td><input type="checkbox" class="nv-chk" data-i="${i}" checked></td><td class="cell-strong" data-nv="${i}">${esc(n)}</td><td><select class="approve-select nv-cat" data-i="${i}" style="max-width:none">${cats.map((c) => `<option ${c === "Supplies & Equipment" ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></td></tr>`).join("")}
+          </tbody></table></div>
+          <div style="display:flex;gap:8px;margin-top:10px;align-items:center"><button class="btn btn-primary btn-sm" id="nvAdd">Add selected to vendor list</button><button class="btn btn-outline btn-sm" id="nvDismiss">Dismiss</button><span class="cell-sub" id="nvMsg"></span></div>
+        </div>`;
+      };
+      const wireNewVendorConfirm = (res) => {
+        const dis = res.querySelector("#nvDismiss"); if (dis) dis.addEventListener("click", () => { res.innerHTML = ""; });
+        const add = res.querySelector("#nvAdd"); if (add) add.addEventListener("click", async () => {
+          let n = 0;
+          res.querySelectorAll(".nv-chk:checked").forEach((ch) => {
+            const i = ch.getAttribute("data-i");
+            const name = res.querySelector(`[data-nv="${i}"]`).textContent;
+            const cat = res.querySelector(`.nv-cat[data-i="${i}"]`).value;
+            if (P.addVendorRecord({ name, category: cat })) n++;
+          });
+          try { if (window.Store && window.Store.available()) await window.Store.saveVendors(P.vendorMaster()); } catch (_) { /* ignore */ }
+          const mm = res.querySelector("#nvMsg"); if (mm) mm.innerHTML = `<span class="text-green">✅ Added ${n} vendor(s) to the master.</span>`;
+          setTimeout(() => { res.innerHTML = ""; }, 1600);
+        });
+      };
+      const sbsFile = document.getElementById("sbsFile");
+      if (sbsFile) sbsFile.addEventListener("change", async () => {
+        const f = sbsFile.files && sbsFile.files[0]; sbsFile.value = "";
+        if (!f) return;
+        if (!isAdmin()) return;
+        const msg = document.getElementById("sbsMsg"); const res = document.getElementById("sbsResult");
+        msg.textContent = "Reading " + f.name + " (tab by tab)…";
+        try {
+          const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
+          const sheets = wb.SheetNames.map((sn) => ({ name: sn, rows: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: false, defval: "" }) }));
+          const cat = (document.getElementById("sbsCategory").value || "Disposables").trim() || "Disposables";
+          const out = P.importShopByShopWorkbook(sheets, { category: cat });
+          if (!out.records.length) { msg.innerHTML = `<span class="text-red">No shop tabs with SKU + price columns were found.</span>`; return; }
+          const imp = P.importRecords(out.records);
+          refreshDataset();
+          if (window.Store && window.Store.available()) { try { await window.Store.pushAll(); } catch (_) { /* ignore */ } }
+          msg.innerHTML = `<span class="text-green">✅ Imported ${imp.added} SKU(s) from ${out.sheetsUsed.length} shop tab(s) as “${esc(cat)}”${imp.brandsCreated ? `, created ${imp.brandsCreated} shop(s)` : ""}.</span>`;
+          const news = P.newVendorsAmong(out.vendors);
+          if (news.length) { res.innerHTML = newVendorConfirmHTML(news); wireNewVendorConfirm(res); }
+          else { res.innerHTML = `<div class="cell-sub">Recommended vendors seen: ${out.vendors.map(esc).join(", ") || "—"} — all already in your vendor list.</div>`; }
+        } catch (e) { msg.innerHTML = `<span class="text-red">⚠️ ${esc(e.message || e)}</span>`; }
+      });
 
       // ---- AI provider toggle + savings review ----
       const aiSel = document.getElementById("aiProvider");
@@ -3029,7 +3097,8 @@
       const head = `<div class="page-head"><h1>🧾 Vendor Spend <span class="badge navy" style="vertical-align:middle">Sales reports</span></h1>
         <p>Upload vendor sales reports to see spend, volume, and SKU trends — reconciled to your shops — so leadership can spot expenses and cost-savings opportunities at a glance.</p></div>`;
       const upload = canEdit ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
-          <input type="text" id="vsVendorName" placeholder="Vendor for this report (e.g. SoJo)" style="padding:7px 10px;border:1px solid var(--gray-200);border-radius:9px;font-size:13px;min-width:200px">
+          <input type="text" id="vsVendorName" placeholder="Vendor for this report (e.g. SoJo)" style="padding:7px 10px;border:1px solid var(--gray-200);border-radius:9px;font-size:13px;min-width:190px">
+          <input type="text" id="vsCategory" value="Disposables" title="Category applied to every line in this report" style="padding:7px 10px;border:1px solid var(--gray-200);border-radius:9px;font-size:13px;min-width:140px">
           <input type="file" id="vsFile" accept=".csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg,.txt,.tsv" style="display:none">
           <button class="btn btn-primary btn-sm" id="vsUpload">🤖 Upload vendor sales report</button>
           ${hasData ? `<button class="btn btn-outline btn-sm" id="vsClear">🗑 Clear spend data</button>` : ""}
@@ -3087,8 +3156,9 @@
             <td class="num cell-strong text-green">${fmt.money(d.potential)}</td></tr>`).join("")}
           </tbody></table></div>${disc.rows.length > 15 ? `<div class="cell-sub" style="margin-top:8px">+ ${disc.rows.length - 15} more…</div>` : ""}</div>` : "";
 
-      return `${head}${upload}
-        <div class="toolbar"><div class="field" style="margin:0;min-width:240px"><label>Vendor</label><select id="vsVendor" class="approve-select" style="max-width:none;width:100%">${vOpts}</select></div></div>
+      const newVbar = (canEdit && State.vsNewVendor) ? `<div class="notice" style="background:var(--amber-bg);border-color:#f3d9a8;color:var(--amber);margin-bottom:14px">🆕 “${esc(State.vsNewVendor)}” isn't in your vendor list yet. <button class="btn btn-primary btn-sm" id="vsAddVendor" style="margin-left:8px">Add to vendor list</button> <button class="btn btn-outline btn-sm" id="vsDismissVendor">Dismiss</button></div>` : "";
+      return `${head}${upload}${newVbar}
+        <div class="toolbar"><div class="field" style="margin:0;min-width:240px"><label>Vendor${sel !== "All" ? ` — showing <b>${esc(sel)}</b>` : ""}</label><select id="vsVendor" class="approve-select" style="max-width:none;width:100%">${vOpts}</select></div></div>
         <div class="grid cols-4" style="margin-bottom:16px">
           ${U.statCard({ label: "Total Spend", value: fmt.money(m.totalSpend), accent: "navy", icon: "💵", iconBg: "var(--navy-50)" })}
           ${U.statCard({ label: "Total Volume (units)", value: fmt.num(m.totalQty), accent: "blue", icon: "📦", iconBg: "var(--blue-bg)" })}
@@ -3133,19 +3203,29 @@
           const f = file.files && file.files[0];
           if (!f) return;
           const vendor = ((document.getElementById("vsVendorName") || {}).value || "").trim();
+          const category = ((document.getElementById("vsCategory") || {}).value || "").trim();
           msg.textContent = "🤖 Reading " + f.name + " (all tabs)…";
           try {
-            const { added, sheets } = await ingestSpendFile(f, { vendor });
+            const { added, sheets } = await ingestSpendFile(f, { vendor, category });
             if (!added) { msg.textContent = "⚠️ No line-item spend found. Make sure a tab has amount + item + date columns."; return; }
             msg.textContent = `Saving ${added} lines…`;
             if (window.Store && window.Store.available()) await window.Store.pushAp();
-            State.vsLastImport = `Imported ${added} line(s) from: ${(sheets || []).join(", ") || "file"}.`;
+            State.vsLastImport = `Imported ${added} line(s)${vendor ? " for " + vendor : ""} from: ${(sheets || []).join(", ") || "file"}.`;
+            if (vendor) { State.vendorFilter = vendor; State.vsNewVendor = P.newVendorsAmong([vendor]).length ? vendor : null; }
             rerender();
           } catch (e) { msg.textContent = "⚠️ " + (e.message || e); }
           finally { file.value = ""; }
         });
       }
       if (State.vsLastImport) { const mm = document.getElementById("vsMsg"); if (mm) mm.innerHTML = `<span class="text-green">✅ ${esc(State.vsLastImport)}</span>`; State.vsLastImport = null; }
+      const addV = document.getElementById("vsAddVendor");
+      if (addV) addV.addEventListener("click", async () => {
+        P.addVendorRecord({ name: State.vsNewVendor, category: "Linen, Laundry & Supplies" });
+        try { if (window.Store && window.Store.available()) await window.Store.saveVendors(P.vendorMaster()); } catch (_) { /* ignore */ }
+        State.vsNewVendor = null; rerender();
+      });
+      const disV = document.getElementById("vsDismissVendor");
+      if (disV) disV.addEventListener("click", () => { State.vsNewVendor = null; rerender(); });
       const clr = document.getElementById("vsClear");
       if (clr) clr.addEventListener("click", async () => {
         if (!confirm("Remove ALL uploaded vendor/AP spend data?")) return;
