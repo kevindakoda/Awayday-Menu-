@@ -617,6 +617,33 @@
     if (i >= 0) CONTRACTS.splice(i, 1);
   }
 
+  // Promote a vendor contract / price book into the catalog as SKUs so the data
+  // shows across the whole portal (dashboard, catalog, shop view, savings).
+  // Optionally attach to a shop/brand (created if it doesn't exist yet).
+  function publishContractToCatalog(contractId, shopName) {
+    const c = CONTRACTS.find((x) => x.id === contractId);
+    if (!c) return { added: 0 };
+    let brand = null;
+    if (shopName) {
+      brand = SHOPS.find((b) => b.shopName === shopName) || null;
+      if (!brand) { brand = { shopName, code: nextBrandCode(), region: "" }; SHOPS.push(brand); }
+    }
+    let added = 0;
+    (c.items || []).forEach((it) => {
+      SKUS.push(makeSku({
+        sku: it.name, productName: it.name, description: it.description || it.name,
+        category: it.category, subcategory: it.subcategory,
+        currentVendor: c.vendorName, recommendedVendor: c.vendorName,
+        currentUnitPrice: it.unitPrice, newUnitPrice: it.unitPrice,
+        unitOfMeasure: it.uom, packSize: it.packSize,
+        shop: brand ? brand.shopName : "", shopCode: brand ? brand.code : "", region: brand ? brand.region : "",
+        contractedItem: true,
+      }));
+      added++;
+    });
+    return { added, brand };
+  }
+
   // All price books for a vendor (case-insensitive).
   function contractsByVendor(vendorName) {
     const n = String(vendorName || "").toLowerCase();
@@ -1492,6 +1519,7 @@
     weekOf,
     importContract,
     deleteContract,
+    publishContractToCatalog,
     contractsByVendor,
     vendorDuplicates,
     nextContractId,
