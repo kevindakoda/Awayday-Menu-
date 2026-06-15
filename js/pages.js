@@ -2162,7 +2162,7 @@
             <td>${isAdmin ? `<select class="approve-select" data-f="shop">${shopOpts(p.shop || "")}</select>` : esc(p.shop || "—")}</td>
             <td>${isAdmin ? `<select class="approve-select" data-f="region">${regionOpts(p.region || "")}</select>` : esc(p.region || "—")}</td>
             <td class="cell-sub">${esc(String(p.created_at || "").slice(0, 10))}</td>
-            <td>${isAdmin ? `<button class="btn btn-primary btn-sm" data-save>Save</button>` : ""}<span class="cell-sub" data-msg style="margin-left:8px"></span></td>
+            <td>${isAdmin ? `<button class="btn btn-primary btn-sm" data-save>Save</button>${(p.role !== "Procurement Admin" || p.status !== "approved") ? ` <button class="btn btn-green btn-sm" data-makeadmin="${esc(p.id)}">★ Make admin</button>` : ""}` : ""}<span class="cell-sub" data-msg style="margin-left:8px"></span></td>
           </tr>`;
         }).join("");
 
@@ -2203,6 +2203,12 @@
           if (!confirm("Deny access for this user?")) return;
           b.disabled = true;
           const { error } = await client.from("profiles").update({ status: "denied" }).eq("id", b.getAttribute("data-deny-uid"));
+          if (error) { alert(error.message); b.disabled = false; return; }
+          load();
+        }));
+        box.querySelectorAll("[data-makeadmin]").forEach((b) => b.addEventListener("click", async () => {
+          b.disabled = true;
+          const { error } = await client.from("profiles").update({ role: "Procurement Admin", status: "approved" }).eq("id", b.getAttribute("data-makeadmin"));
           if (error) { alert(error.message); b.disabled = false; return; }
           load();
         }));
