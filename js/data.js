@@ -563,6 +563,81 @@
     return { added, brandsCreated: SHOPS.length - before, totalBrands: SHOPS.length, totalSkus: SKUS.length };
   }
 
+  // Clean a raw "winning vendor" cell — drop numbers and header/placeholder junk.
+  function cleanVendorName(v) {
+    const s = String(v == null ? "" : v).trim();
+    if (!s) return "";
+    if (/^[\d.,$%\s]+$/.test(s)) return "";
+    const junk = new Set(["winning vendor", "vendor", "total cost", "no savings", "no bid", "no bids", "n/a", "na", "-", "—", "current?"]);
+    if (junk.has(s.toLowerCase())) return "";
+    return s;
+  }
+
+  // Parse a "Shop-by-Shop master" workbook: each shop tab (between the
+  // "Shop Views >>" / next ">>" separators) becomes that shop's SKUs. Detects
+  // the header row within each tab, maps baseline/new each + the winning
+  // (recommended) vendor, and tags everything to the Disposables category.
+  // sheets = [{ name, rows: array-of-arrays }]. Returns records + the distinct
+  // recommended vendors seen, so the caller can confirm new ones.
+  function importShopByShopWorkbook(sheets, opts) {
+    opts = opts || {};
+    const category = opts.category || "Disposables";
+    const low = (x) => (x == null ? "" : String(x).trim().toLowerCase());
+    const names = sheets.map((s) => s.name);
+    let candidates;
+    const start = names.findIndex((n) => /shop views/i.test(n));
+    if (start >= 0) {
+      let end = sheets.length;
+      for (let i = start + 1; i < names.length; i++) { if (/>>/.test(names[i])) { end = i; break; } }
+      candidates = sheets.slice(start + 1, end).filter((s) => !/>>/.test(s.name));
+    } else {
+      const skip = /summary|tracker|calculator|index|no bid|tiered|request|standardization|old|outdated|ttm|consolidated|sku detail|aarete|>>/i;
+      candidates = sheets.filter((s) => !skip.test(s.name));
+    }
+    const findHeader = (rows) => {
+      for (let i = 0; i < Math.min(8, rows.length); i++) {
+        const cells = (rows[i] || []).map(low);
+        if (cells.some((c) => c === "sku") && cells.some((c) => c === "description" || c.includes("description"))) return { i, cells };
+      }
+      return null;
+    };
+    const pick = (cells, keys, avoid) => {
+      for (const k of keys) { const i = cells.indexOf(k); if (i >= 0) return i; }
+      for (const k of keys) { for (let i = 0; i < cells.length; i++) { const c = cells[i]; if (c.includes(k) && !(avoid || []).some((a) => c.includes(a))) return i; } }
+      return -1;
+    };
+    const num = (v) => +String(v == null ? "" : v).replace(/[$,\s]/g, "") || 0;
+    const records = []; const used = []; const vendors = {}; const vbysub = {};
+    candidates.forEach((sh) => {
+      const rows = sh.rows || []; const H = findHeader(rows); if (!H) return;
+      const c = H.cells;
+      const ciSku = pick(c, ["sku"], ["winning"]);
+      const ciDesc = pick(c, ["description"], ["winning"]);
+      const ciSub = pick(c, ["sub-category", "sub category", "subcategory"]);
+      const ciQty = pick(c, ["quantity", "qty"]);
+      const ciCur = pick(c, ["bl $/ea", "old each price", "$ per each", "baseline $/ea", "old each"]);
+      const ciNew = pick(c, ["winning b $/ea", "new each price", "new $ per each", "new each"]);
+      let ciVen = -1; for (let i = 0; i < c.length; i++) { if (c[i].includes("winning vendor")) { ciVen = i; break; } }
+      if (ciSku < 0) return;
+      let cnt = 0;
+      for (let r = H.i + 1; r < rows.length; r++) {
+        const row = rows[r] || []; const g = (i) => (i >= 0 && i < row.length && row[i] != null ? row[i] : "");
+        const sku = String(g(ciSku)).trim();
+        if (!sku || /^(none|nan)$/i.test(sku)) continue;
+        const desc = String(g(ciDesc)).trim();
+        const cur = num(g(ciCur)); const nw = num(g(ciNew)) || cur;
+        if (!desc && !cur) continue;
+        const ven = cleanVendorName(g(ciVen));
+        const sub = String(g(ciSub)).trim() || "Miscellaneous";
+        records.push({ shop: sh.name, sku, productName: desc || sku, description: desc, subcategory: sub, category, currentUnitPrice: cur, newUnitPrice: nw, recommendedVendor: ven, annualQuantity: num(g(ciQty)) });
+        if (ven) { vendors[ven] = (vendors[ven] || 0) + 1; (vbysub[sub] = vbysub[sub] || new Set()).add(ven); }
+        cnt++;
+      }
+      if (cnt) used.push(sh.name + " (" + cnt + ")");
+    });
+    return { records, sheetsUsed: used, vendors: Object.keys(vendors).sort(), vendorsBySub: vbysub };
+  }
+
   /* ---------------------------- Vendor contracts ---------------------------- */
   function nextContractId() {
     let n = CONTRACTS.length + 1, id;
@@ -1271,7 +1346,7 @@
       if (!row || !row.length) continue;
       const get = (i) => (i >= 0 ? row[i] : "");
       const rec = makeApRow({
-        date: get(di), shop: String(get(si) || "").trim(), category: get(ci), subcategory: get(subi),
+        date: get(di), shop: String(get(si) || "").trim(), category: opts.category || get(ci), subcategory: get(subi),
         vendor: get(vi), amount: get(ai), quantity: get(qi), description: get(desi), sku: get(ski),
       });
       if (!rec.date && !rec.amount) continue;
@@ -1289,7 +1364,7 @@
     opts = opts || {};
     let added = 0;
     (items || []).forEach((it) => {
-      const rec = makeApRow(it);
+      const rec = makeApRow(opts.category ? Object.assign({}, it, { category: opts.category }) : it);
       if (!rec.date && !rec.amount) return;
       if (!rec.vendor && opts.vendor) rec.vendor = opts.vendor;
       resolveApShop(rec);
@@ -1478,6 +1553,24 @@
     return rec;
   }
   function removeVendorRecord(id) { const i = VENDORS_DB.findIndex((v) => v.id === id); if (i >= 0) VENDORS_DB.splice(i, 1); }
+  // Names not already in the vendor master (by exact/alias/fuzzy match) — drives
+  // the "confirm before adding a new vendor" prompt.
+  function newVendorsAmong(names) {
+    const out = [], seen = new Set();
+    (names || []).forEach((n) => {
+      const t = String(n || "").trim(); if (!t) return;
+      const k = normName(t); if (seen.has(k)) return; seen.add(k);
+      if (!canonicalVendor(t)) out.push(t);
+    });
+    return out;
+  }
+  // Distinct recommended vendors a shop could move to for a given sub-category
+  // (a menu of options, not a forced choice).
+  function vendorOptionsForSub(subcategory) {
+    const set = new Set();
+    SKUS.forEach((s) => { if ((s.subcategory || "") === subcategory && s.recommendedVendor && s.recommendedVendor !== "—") set.add(s.recommendedVendor); });
+    return Array.from(set).sort();
+  }
   // Bulk import vendors from a header+rows matrix (Vendor/Name, Category, Notes).
   function ingestVendorRows(matrix) {
     if (!matrix || !matrix.length) return { added: 0 };
@@ -1572,6 +1665,10 @@
     makeSku,
     ensureBrand,
     importRecords,
+    importShopByShopWorkbook,
+    cleanVendorName,
+    newVendorsAmong,
+    vendorOptionsForSub,
     updateSku,
     clearAll,
     loadSampleData,
