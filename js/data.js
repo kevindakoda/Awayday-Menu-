@@ -625,8 +625,13 @@
         const sku = String(g(ciSku)).trim();
         if (!sku || /^(none|nan)$/i.test(sku)) continue;
         const desc = String(g(ciDesc)).trim();
-        const cur = num(g(ciCur)); const nw = num(g(ciNew)) || cur;
-        if (!desc && !cur) continue;
+        let cur = num(g(ciCur)); let nw = num(g(ciNew));
+        const cap = opts.maxEach || 1000;          // a per-each above this is a mis-picked total
+        if (cur > cap) cur = 0;
+        if (nw > cap) nw = 0;
+        if (!nw) nw = cur; if (!cur) cur = nw;     // mirror so both sides have a per-each
+        if (!cur && !nw) continue;                 // no usable price → skip (avoids $0 junk rows)
+        if (!desc && !/[a-z]/i.test(sku)) continue;
         const ven = cleanVendorName(g(ciVen));
         const sub = String(g(ciSub)).trim() || "Miscellaneous";
         records.push({ shop: sh.name, sku, productName: desc || sku, description: desc, subcategory: sub, category, currentUnitPrice: cur, newUnitPrice: nw, recommendedVendor: ven, annualQuantity: num(g(ciQty)) });

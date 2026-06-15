@@ -1467,6 +1467,15 @@
       const recScore = (r) => (r.currentUnitPrice > 0 ? 1 : 0) + (r.newUnitPrice > 0 ? 1 : 0) + (r.annualQuantity > 0 ? 1 : 0) + (r.sku ? 1 : 0);
       const processSheet = async (file) => {
         setStatus("⏳ Reading every tab…");
+        // Guard: a shop-by-shop master workbook must use the dedicated importer,
+        // otherwise its per-tab layout gets mis-read (totals as prices, etc.).
+        try {
+          const wb0 = XLSX.read(await file.arrayBuffer(), { type: "array" });
+          if (wb0.SheetNames.some((n) => />>/.test(n) || /shop views/i.test(n))) {
+            setStatus("This looks like a Shop-by-Shop master workbook. Please use the “📑 Upload Shop-by-Shop master” button above so each tab maps to the correct shop and the recommended vendor is captured.", "err");
+            return;
+          }
+        } catch (_) { /* fall through to normal parse */ }
         const { rows, skipped } = await readSheet(file);
         const records = rows.map(rowToRecord).filter((r) => r.productName);
         if (!records.length) {
