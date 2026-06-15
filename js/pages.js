@@ -1918,12 +1918,23 @@
         if (profilesRes.error) { box.innerHTML = `<div class="notice" style="background:var(--amber-bg);border-color:#f3d9a8;color:var(--amber)">⚠️ ${esc(profilesRes.error.message)}</div>`; return; }
         const profiles = profilesRes.data || [];
         const adminEmails = new Set(((adminsRes.data) || []).map((a) => String(a.email || "").toLowerCase()));
+        const stBadge = (s) => { const m = { approved: "green", pending: "amber", denied: "red" }; return `<span class="badge ${m[s] || "amber"}">${esc(s || "pending")}</span>`; };
+        const statusCell = (p, isMe) => {
+          if (!isAdmin) return stBadge(p.status);
+          let btns = "";
+          if (p.status !== "approved") btns += ` <button class="btn btn-green btn-sm" data-approve-uid="${esc(p.id)}">Approve</button>`;
+          if (p.status !== "denied" && !isMe) btns += ` <button class="btn btn-outline btn-sm" data-deny-uid="${esc(p.id)}">Deny</button>`;
+          return stBadge(p.status) + btns;
+        };
+        const pend = profiles.filter((p) => (p.status || "pending") !== "approved");
+        const pendPanel = (isAdmin && pend.length) ? `<div class="notice" style="background:var(--amber-bg);border-color:#f3d9a8;color:var(--amber);margin-bottom:12px">⏳ <b>${pend.length}</b> access request(s) awaiting review — approve or deny in the table below.</div>` : "";
 
         const rows = profiles.map((p) => {
           const isMe = p.id === me.id;
           const tag = adminEmails.has(String(p.email || "").toLowerCase()) ? ` <span class="badge purple">portal admin</span>` : "";
           return `<tr data-uid="${esc(p.id)}">
             <td><span class="cell-strong">${esc(p.full_name || "—")}${isMe ? ' <span class="badge blue">you</span>' : ""}</span><div class="cell-sub">${esc(p.email || "")}${tag}</div></td>
+            <td>${statusCell(p, isMe)}</td>
             <td>${isAdmin ? `<select class="approve-select" data-f="role">${roleOpts(p.role)}</select>` : `<span class="badge navy">${esc(p.role)}</span>`}</td>
             <td>${isAdmin ? `<select class="approve-select" data-f="shop">${shopOpts(p.shop || "")}</select>` : esc(p.shop || "—")}</td>
             <td>${isAdmin ? `<select class="approve-select" data-f="region">${regionOpts(p.region || "")}</select>` : esc(p.region || "—")}</td>
@@ -1950,12 +1961,28 @@
           </div>` : "";
 
         box.innerHTML = `
-          ${profiles.length ? `<div class="table-wrap" style="border:none"><table class="data" style="min-width:760px"><thead><tr>
-            <th>User</th><th>Role</th><th>Shop</th><th>Region</th><th>Joined</th><th></th>
+          ${pendPanel}
+          ${profiles.length ? `<div class="table-wrap" style="border:none"><table class="data" style="min-width:820px"><thead><tr>
+            <th>User</th><th>Access</th><th>Role</th><th>Shop</th><th>Region</th><th>Joined</th><th></th>
           </tr></thead><tbody>${rows}</tbody></table></div>`
           : `<div class="cell-sub">No users yet. Use the invitation form below or share the portal URL — sign-ups will appear here.</div>`}
           ${isAdmin ? "" : `<div class="notice" style="margin-top:10px">🔒 Only a Procurement Admin can change roles.</div>`}
           ${inviteForm}`;
+
+        // Approve / deny access requests.
+        box.querySelectorAll("[data-approve-uid]").forEach((b) => b.addEventListener("click", async () => {
+          b.disabled = true;
+          const { error } = await client.from("profiles").update({ status: "approved" }).eq("id", b.getAttribute("data-approve-uid"));
+          if (error) { alert(error.message); b.disabled = false; return; }
+          load();
+        }));
+        box.querySelectorAll("[data-deny-uid]").forEach((b) => b.addEventListener("click", async () => {
+          if (!confirm("Deny access for this user?")) return;
+          b.disabled = true;
+          const { error } = await client.from("profiles").update({ status: "denied" }).eq("id", b.getAttribute("data-deny-uid"));
+          if (error) { alert(error.message); b.disabled = false; return; }
+          load();
+        }));
 
         const sendBtn = document.getElementById("invSend");
         if (sendBtn) sendBtn.addEventListener("click", async () => {
