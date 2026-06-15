@@ -190,7 +190,7 @@
     const r = P.ROLES[role];
     if (!r || r.pages === "*" || !r.brandOnly) return null;
     if (role === "Regional Manager" && region) return { type: "region", region };
-    if (shop) return { type: "shop", shop };
+    if (shop) return { type: "shop", shop, shopCode: shop };
     if (region) return { type: "region", region };
     return null;
   }

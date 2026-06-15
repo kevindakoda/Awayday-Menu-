@@ -2294,7 +2294,7 @@
 
   /* ============== RISK & INTELLIGENCE (RAI + SPAI) ============== */
   function intelMetrics() {
-    const skus = P.SKUS || [];
+    const skus = (P.scopedSkus ? P.scopedSkus() : P.SKUS) || [];
     const totals = P.aggregate(skus);
     const share = (rows) => {
       const m = {};
