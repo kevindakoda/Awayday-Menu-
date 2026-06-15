@@ -72,6 +72,13 @@
     return res.items || [];
   }
 
+  // OCR a price list / invoice / pricing-exhibit page already in memory as
+  // base64 (e.g. a PDF page rasterized to PNG). Returns extracted line items.
+  async function ocrImage(mediaType, data) {
+    const res = await invoke("ocr", { mediaType, data, taxonomy: taxonomy() });
+    return res.items || [];
+  }
+
   // Extract a vendor price book from a contract / rate sheet (image or PDF).
   // Returns { vendorName, title, effectiveDate, expirationDate, items: [...] }.
   async function contractExtract(file) {
@@ -195,5 +202,5 @@
     });
   }
 
-  window.AI = { categorize, ocr, contractExtract, analyze, ask, snapshot, extractSpend, mapColumns, market, categorizeLocal, taxonomy, getProvider, setProvider, providers };
+  window.AI = { categorize, ocr, ocrImage, contractExtract, analyze, ask, snapshot, extractSpend, mapColumns, market, categorizeLocal, taxonomy, getProvider, setProvider, providers };
 })();

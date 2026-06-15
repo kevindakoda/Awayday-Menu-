@@ -68,6 +68,29 @@
     return { added, sheets: used };
   }
 
+  /* Render a PDF's pages to JPEG images (base64) in the browser — used to OCR
+     encrypted / image-only / signed PDFs that have no extractable text layer. */
+  async function pdfToImages(file, cap, onProgress) {
+    if (!window.pdfjsLib) return [];
+    try { if (window.pdfjsLib.GlobalWorkerOptions) window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"; } catch (_) { /* ignore */ }
+    const pdf = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+    const n = Math.min(pdf.numPages, cap || 40);
+    const out = [];
+    for (let i = 1; i <= n; i++) {
+      if (onProgress) onProgress(i, n);
+      const page = await pdf.getPage(i);
+      const base = page.getViewport({ scale: 1 });
+      const scale = Math.min(2.5, 1500 / base.width);
+      const vp = page.getViewport({ scale });
+      const canvas = document.createElement("canvas");
+      canvas.width = vp.width; canvas.height = vp.height;
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+      out.push({ mediaType: "image/jpeg", data: dataUrl.slice(dataUrl.indexOf(",") + 1) });
+    }
+    return out;
+  }
+
   /* ============================== DASHBOARD ============================== */
   PAGES.dashboard = {
     title: "Dashboard",
@@ -1731,27 +1754,37 @@
         } catch (e) { setContractStatus(`❌ ${esc(e.message || e)}`, "err"); return; }
         if (vendorOverride) extracted.vendorName = vendorOverride;
         extracted.source = file.name || "";
-        // Fallback: if the contract pass found no priced lines (common when
-        // pricing lives in an Exhibit A table), retry with line-item OCR, which
-        // reads pricing tables and divides packs/cases down to a per-each price.
-        if (!(extracted.items || []).some((i) => (i.name && String(i.name).trim()) || i.unitPrice)) {
-          if (/\.(pdf|png|jpe?g|webp|gif)$/.test(nm) || /^image\//.test(file.type) || file.type === "application/pdf") {
-            setContractStatus("No price book detected on the first pass — reading the Exhibit/pricing tables line-by-line…");
-            try {
-              const items = await window.AI.ocr(file);
-              if (items && items.length) {
-                extracted.items = items.map((it) => ({
-                  name: it.productName, description: it.description || "",
-                  category: it.category, subcategory: it.subcategory,
-                  unitPrice: +it.currentUnitPrice || +it.newUnitPrice || 0,
-                  uom: it.unitOfMeasure || "Each", packSize: it.packSize || "",
-                }));
-                if (!extracted.vendorName) extracted.vendorName = vendorOverride || baseName;
+        // Fallback: if the contract pass found no priced lines (common when the
+        // PDF is encrypted/image-only with pricing in an Exhibit A table), render
+        // each page to an image and OCR it — vision reads the scanned tables and
+        // divides packs/cases down to a per-each price.
+        const noItems = () => !(extracted.items || []).some((i) => (i.name && String(i.name).trim()) || i.unitPrice);
+        const ocrItemsToContract = (items) => items.map((it) => ({
+          name: it.productName, description: it.description || "",
+          category: it.category, subcategory: it.subcategory,
+          unitPrice: +it.currentUnitPrice || +it.newUnitPrice || 0,
+          uom: it.unitOfMeasure || "Each", packSize: it.packSize || "",
+        }));
+        const isPdfOrImg = /\.(pdf|png|jpe?g|webp|gif)$/.test(nm) || /^image\//.test(file.type) || file.type === "application/pdf";
+        if (noItems() && isPdfOrImg) {
+          const isPdf = file.type === "application/pdf" || nm.endsWith(".pdf");
+          try {
+            if (isPdf && window.pdfjsLib) {
+              const pages = await pdfToImages(file, 40, (i, n) => setContractStatus(`🖼️ Rendering page ${i} of ${n}…`));
+              let items = [];
+              for (let i = 0; i < pages.length; i++) {
+                setContractStatus(`🤖 Reading pricing on page ${i + 1} of ${pages.length}…`);
+                try { items = items.concat(await window.AI.ocrImage(pages[i].mediaType, pages[i].data) || []); } catch (_) { /* skip page */ }
               }
-            } catch (_) { /* ignore; will fall to the message below */ }
-          }
+              if (items.length) { extracted.items = ocrItemsToContract(items); if (!extracted.vendorName) extracted.vendorName = vendorOverride || baseName; }
+            } else {
+              setContractStatus("Reading the pricing tables line-by-line…");
+              const items = await window.AI.ocr(file);
+              if (items && items.length) { extracted.items = ocrItemsToContract(items); if (!extracted.vendorName) extracted.vendorName = vendorOverride || baseName; }
+            }
+          } catch (_) { /* fall to message below */ }
         }
-        if (!(extracted.items || []).some((i) => (i.name && String(i.name).trim()) || i.unitPrice)) {
+        if (noItems()) {
           setContractStatus("No priced line items were found in that contract.", "err"); return;
         }
         const res = P.importContract(extracted);
