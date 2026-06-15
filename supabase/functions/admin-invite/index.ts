@@ -95,7 +95,7 @@ Deno.serve(async (req: Request) => {
   const profileRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?on_conflict=id`, {
     method: "POST",
     headers: { ...svcHeaders, prefer: "resolution=merge-duplicates" },
-    body: JSON.stringify({ id: invited.id, email, full_name: fullName, role, shop, region }),
+    body: JSON.stringify({ id: invited.id, email, full_name: fullName, role, shop, region, status: "approved" }),
   });
   if (!profileRes.ok) {
     const t = await profileRes.text();
