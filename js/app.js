@@ -6,28 +6,38 @@
   const P = window.PSP;
   const State = window.AppState;
 
-  const NAV = [
-    { id: "summary", label: "Executive Summary", icon: "⭐", route: "#/summary" },
-    { id: "dashboard", label: "Dashboard", icon: "📊", route: "#/dashboard" },
-    { id: "categories", label: "Categories", icon: "🗂️", route: "#/categories" },
-    { id: "catalog", label: "SKU Catalog", icon: "📦", route: "#/catalog" },
-    { id: "savings", label: "Savings Opportunities", icon: "📉", route: "#/savings" },
-    { id: "realization", label: "Savings Realization", icon: "🎯", route: "#/realization" },
-    { id: "shops", label: "Shop View", icon: "🏬", route: "#/shops" },
-    { id: "patterns", label: "Buying Patterns", icon: "📅", route: "#/patterns" },
-    { id: "vendorspend", label: "Vendor Spend", icon: "🧾", route: "#/vendorspend" },
-    { id: "compliance", label: "Price Compliance", icon: "⚖️", route: "#/compliance" },
-    { id: "vendors", label: "Vendors", icon: "🏷️", route: "#/vendors" },
-    { id: "comparison", label: "Product Comparison", icon: "🔄", route: "#/comparison" },
-    { id: "uom", label: "UoM Converter", icon: "📐", route: "#/uom" },
-    { id: "tracker", label: "Implementation Tracker", icon: "✅", route: "#/tracker" },
-    { id: "ask", label: "Ask AI", icon: "💬", route: "#/ask" },
-    { id: "intel", label: "Risk & Intelligence", icon: "📉", route: "#/intel" },
-    { id: "market", label: "Market Insights", icon: "🌐", route: "#/market" },
-    { id: "quality", label: "Data Quality", icon: "🧹", route: "#/quality" },
-    { id: "ai", label: "AI Categorization", icon: "🤖", route: "#/ai" },
-    { id: "security", label: "Security & Access", icon: "🔐", route: "#/security" },
-    { id: "admin", label: "Admin", icon: "⚙️", route: "#/admin" },
+  const NAV_GROUPS = [
+    {
+      section: "Procurement View",
+      items: [
+        { id: "summary", label: "Executive Summary", icon: "⭐", route: "#/summary" },
+        { id: "dashboard", label: "Dashboard", icon: "📊", route: "#/dashboard" },
+        { id: "categories", label: "Categories", icon: "🗂️", route: "#/categories" },
+        { id: "realization", label: "Savings Realization", icon: "🎯", route: "#/realization" },
+        { id: "vendorspend", label: "Vendor Spend", icon: "🧾", route: "#/vendorspend" },
+        { id: "compliance", label: "Price Compliance", icon: "⚖️", route: "#/compliance" },
+        { id: "vendors", label: "Vendors", icon: "🏷️", route: "#/vendors" },
+        { id: "uom", label: "UoM Converter", icon: "📐", route: "#/uom" },
+        { id: "tracker", label: "Implementation Tracker", icon: "✅", route: "#/tracker" },
+        { id: "quality", label: "Data Quality", icon: "🧹", route: "#/quality" },
+        { id: "ai", label: "AI Categorization", icon: "🤖", route: "#/ai" },
+        { id: "security", label: "Security & Access", icon: "🔐", route: "#/security" },
+        { id: "admin", label: "Admin", icon: "⚙️", route: "#/admin" },
+      ],
+    },
+    {
+      section: "Brand View",
+      items: [
+        { id: "catalog", label: "SKU Catalog", icon: "📦", route: "#/catalog" },
+        { id: "savings", label: "Savings Opportunities", icon: "📉", route: "#/savings" },
+        { id: "shops", label: "Shop View", icon: "🏬", route: "#/shops" },
+        { id: "patterns", label: "Buying Patterns", icon: "📅", route: "#/patterns" },
+        { id: "comparison", label: "Product Comparison", icon: "🔄", route: "#/comparison" },
+        { id: "ask", label: "Ask AI", icon: "💬", route: "#/ask" },
+        { id: "intel", label: "Risk & Intelligence", icon: "📊", route: "#/intel" },
+        { id: "market", label: "Market Insights", icon: "🌐", route: "#/market" },
+      ],
+    },
   ];
 
   // page id -> permission key (some nav items map to same permission group)
@@ -64,11 +74,14 @@
   }
 
   function renderSidebar() {
-    const links = NAV.map((n) => {
-      const isActive = n.id === current.id;
-      const isAllowed = allowed(n.id);
-      return `<a href="${n.route}" class="${isActive ? "active" : ""}" ${isAllowed ? "" : 'style="opacity:.4;pointer-events:none" title="Not available for this role"'}>
-        <span class="ico">${n.icon}</span>${n.label}</a>`;
+    const groupHtml = NAV_GROUPS.map((grp) => {
+      const items = grp.items.filter((n) => allowed(n.id));
+      if (!items.length) return "";
+      const links = items.map((n) => {
+        const isActive = n.id === current.id;
+        return `<a href="${n.route}" class="${isActive ? "active" : ""}"><span class="ico">${n.icon}</span>${n.label}</a>`;
+      }).join("");
+      return `<div class="nav-section">${grp.section}</div>${links}`;
     }).join("");
 
     const user = window.CURRENT_USER || { name: "—", email: "", role: State.role };
@@ -79,8 +92,7 @@
         <div><div class="title">Savings Portal</div><div class="subtitle">Procurement Command Center</div></div>
       </div>
       <nav class="nav">
-        <div class="nav-section">Overview</div>
-        ${links}
+        ${groupHtml}
       </nav>
       <div class="role-box">
         <label>Signed in as</label>
