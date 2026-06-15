@@ -81,9 +81,10 @@
       const items = grp.items.filter((n) => allowed(n.id));
       if (!items.length) return "";
       const hasActive = items.some((n) => n.id === current.id);
-      // Collapsed unless the active page lives here; remembers the user's choice.
+      // Both groups start rolled up; the group holding the active page opens,
+      // and the user's explicit open/close choice is remembered.
       const stored = navCollapsed[grp.section];
-      const open = hasActive || !(stored != null ? stored : grp.section === "Brand View");
+      const open = hasActive || (stored != null ? !stored : false);
       const links = items.map((n) => {
         const isActive = n.id === current.id;
         return `<a href="${n.route}" class="${isActive ? "active" : ""}"><span class="ico">${n.icon}</span>${n.label}</a>`;
@@ -123,6 +124,7 @@
   }
 
   function renderCurrent() {
+    if (window.ShaderHero) window.ShaderHero.stop(); // halt any hero animation from the previous page
     current = parseHash();
     const page = window.PAGES[current.id];
     document.getElementById("sidebar").innerHTML = renderSidebar();
