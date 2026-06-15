@@ -43,10 +43,27 @@
   // page id -> permission key (some nav items map to same permission group)
   const PERM_KEY = { summary: "dashboard", dashboard: "dashboard", categories: "categories", catalog: "catalog", savings: "savings", realization: "savings", shops: "shops", patterns: "catalog", vendorspend: "savings", compliance: "savings", vendors: "vendors", comparison: "comparison", uom: "catalog", tracker: "tracker", ask: "catalog", intel: "savings", market: "dashboard", quality: "admin", ai: "admin", security: "security", admin: "admin" };
 
+  // Page ids that belong to the Brand View group (derived from NAV_GROUPS).
+  const BRAND_PAGES = new Set(
+    (NAV_GROUPS.find((g) => g.section === "Brand View") || { items: [] }).items.map((n) => n.id)
+  );
+
   function allowed(pageId) {
     const role = P.ROLES[State.role];
-    if (!role || role.pages === "*") return true;
+    if (!role) return false;
+    // brandOnly roles can never reach the Procurement section.
+    if (role.brandOnly && !BRAND_PAGES.has(pageId)) return false;
+    if (role.pages === "*") return true;
     return role.pages.includes(PERM_KEY[pageId]);
+  }
+
+  // First page the current role is allowed to see (Brand View first), used as a
+  // landing target so brand users never hit a "Restricted" wall on login.
+  function firstAllowedPage() {
+    for (const grp of NAV_GROUPS) {
+      for (const n of grp.items) if (allowed(n.id)) return n.id;
+    }
+    return null;
   }
 
   let current = { id: "dashboard", params: [] };
@@ -132,8 +149,11 @@
 
     const content = document.getElementById("content");
     if (!allowed(current.id)) {
+      // Redirect to the first page this role can see rather than show a wall.
+      const dest = firstAllowedPage();
+      if (dest && dest !== current.id) { location.hash = "#/" + dest; return; }
       content.innerHTML = `<div class="page-head"><h1>Restricted</h1><p>The <b>${State.role}</b> role does not have access to ${page.crumb}.</p></div>
-        <div class="empty">🔒 Switch roles in the sidebar to view this page.</div>`;
+        <div class="empty">🔒 Contact your portal admin if you believe you should have access.</div>`;
     } else {
       content.innerHTML = page.render(current.params);
       if (page.mount) page.mount(current.params);
@@ -164,11 +184,30 @@
     }));
   }
 
+  // Decide a brand user's data scope from their role + assigned shop/region.
+  // Full-access roles (Procurement Admin, Category Manager) get no scope.
+  function computeScope(role, shop, region) {
+    const r = P.ROLES[role];
+    if (!r || r.pages === "*" || !r.brandOnly) return null;
+    if (role === "Regional Manager" && region) return { type: "region", region };
+    if (shop) return { type: "shop", shop };
+    if (region) return { type: "region", region };
+    return null;
+  }
+
   // The app only renders once auth.js confirms a session and calls start().
   let started = false;
   async function start() {
     started = true;
-    if (!location.hash) location.hash = "#/dashboard";
+    const u = window.CURRENT_USER || {};
+    if (P.setScope) P.setScope(computeScope(State.role, u.shop, u.region));
+    // Procurement/full-access users land on the Executive Summary (hero) home;
+    // brand users land on their first allowed Brand View page.
+    if (!location.hash) {
+      const r = P.ROLES[State.role];
+      const home = (r && !r.brandOnly) ? "summary" : (firstAllowedPage() || "catalog");
+      location.hash = "#/" + home;
+    }
     // Hydrate the in-memory model from Supabase before the first render so
     // previously uploaded/edited data is present. Falls back to in-memory.
     if (window.Store && window.Store.available && window.Store.available()) {

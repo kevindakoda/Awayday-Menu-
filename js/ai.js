@@ -105,7 +105,7 @@
   function snapshot(opts) {
     opts = opts || {};
     const cap = opts.cap || 300;
-    const skus = P.SKUS || [];
+    const skus = (P.scopedSkus ? P.scopedSkus() : P.SKUS) || [];
     const totals = P.aggregate(skus);
 
     const rollup = (keyFn) => {
@@ -134,7 +134,7 @@
       totals: {
         baselineSpend: totals.baselineSpend, newSpend: totals.newSpend,
         savingsOpportunity: totals.savingsOpportunity, savingsPercentage: totals.savingsPercentage,
-        skuCount: totals.skuCount, shopCount: (P.SHOPS || []).length,
+        skuCount: totals.skuCount, shopCount: (P.scopedShops ? P.scopedShops() : (P.SHOPS || [])).length,
       },
       byCategory: rollup((s) => s.categoryGroup),
       byShop: rollup((s) => s.shop),
