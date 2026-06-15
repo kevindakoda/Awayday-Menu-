@@ -1106,6 +1106,24 @@
       <div class="page-head"><h1>Admin Console</h1><p>Upload pricing data, manage taxonomy, brands and vendors, edit SKUs, and import/export CSV. Built to support future AI auto-categorization.</p></div>
       <div class="notice" style="margin-bottom:18px">ℹ️ Uploads save to the shared database and appear on every tab for all signed-in users. If a tab looks stale, click <b>Publish to portal</b> to re-sync, then refresh.</div>
 
+      <div class="card" style="margin-bottom:16px">
+        <h3 class="card-title">🧭 Where should I upload this? <span class="cell-sub">— quick reminder</span></h3>
+        <div class="table-wrap" style="border:none"><table class="data" style="min-width:640px"><thead><tr>
+          <th>To populate…</th><th>Upload where</th><th>Format</th>
+        </tr></thead><tbody>
+          <tr><td><span class="cell-strong">Catalog</span><div class="cell-sub">Dashboard · Catalog · Shop View · Savings</div></td>
+            <td>Admin → <b>Upload pricing data</b> (below)</td>
+            <td class="cell-sub">Excel/CSV with a <b>Shop/Brand</b> column + product, price, qty</td></tr>
+          <tr><td><span class="cell-strong">Vendor price books</span><div class="cell-sub">Vendors · Price Compliance</div></td>
+            <td>Admin → <b>Upload contract</b> (below)</td>
+            <td class="cell-sub">a contract / rate sheet (PDF, image, or Excel)</td></tr>
+          <tr><td><span class="cell-strong">Vendor sales / invoiced spend</span><div class="cell-sub">Buying Patterns · Vendor Spend</div></td>
+            <td><b><a href="#/vendorspend">Vendor Spend → Upload</a></b></td>
+            <td class="cell-sub">dated lines: shop, SKU, vendor, date, amount, qty</td></tr>
+        </tbody></table></div>
+        <div class="cell-sub" style="margin-top:8px">Uploaded a contract but want it in the catalog? Use <b>Publish price book → catalog</b> on the <a href="#/vendors">Vendors</a> page.</div>
+      </div>
+
       <div class="card" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
         <div><h3 class="card-title" style="margin:0">🗃️ Dataset</h3>
           <div class="cell-sub" id="dataStatus">${P.SHOPS.length} brand(s) · ${P.SKUS.length} SKU(s) loaded.</div>
