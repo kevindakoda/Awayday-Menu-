@@ -32,7 +32,8 @@
     ];
     return `
     <div class="login-wrap">
-      <div class="retro-grid" aria-hidden="true"></div>
+      <canvas class="login-shader" id="loginShaderCanvas" aria-hidden="true"></canvas>
+      <div class="login-shade" aria-hidden="true"></div>
       <div class="login-glow" aria-hidden="true"></div>
       <div class="login-shell">
         <div class="login-hero">
@@ -80,6 +81,7 @@
     if (toggle) toggle.addEventListener("click", (e) => { e.preventDefault(); signupMode = !signupMode; showLogin(); });
     const email = $("loginEmail");
     if (email) email.focus();
+    if (window.ShaderHero) { const c = $("loginShaderCanvas"); if (c) window.ShaderHero.mount(c); }
   }
 
   function setMsg(text, kind) {

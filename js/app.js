@@ -98,10 +98,10 @@
       const items = grp.items.filter((n) => allowed(n.id));
       if (!items.length) return "";
       const hasActive = items.some((n) => n.id === current.id);
-      // Both groups start rolled up; the group holding the active page opens,
-      // and the user's explicit open/close choice is remembered.
+      // Honor the user's explicit open/close choice when set; otherwise default
+      // to open for the group holding the active page, collapsed for the rest.
       const stored = navCollapsed[grp.section];
-      const open = hasActive || (stored != null ? !stored : false);
+      const open = (stored != null) ? !stored : hasActive;
       const links = items.map((n) => {
         const isActive = n.id === current.id;
         return `<a href="${n.route}" class="${isActive ? "active" : ""}"><span class="ico">${n.icon}</span>${n.label}</a>`;
