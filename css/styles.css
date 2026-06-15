@@ -112,6 +112,17 @@ button { font-family: inherit; cursor: pointer; }
 
 .nav { padding: 12px 12px; overflow-y: auto; flex: 1; }
 .nav-section { font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; color: #6f8aa9; padding: 14px 12px 6px; }
+.nav-section.nav-toggle {
+  width: 100%; background: none; border: none; cursor: pointer; text-align: left;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font: inherit; font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em;
+  color: #6f8aa9; transition: color .15s;
+}
+.nav-section.nav-toggle:hover { color: #aec3da; }
+.nav-section.nav-toggle.open { color: #8fa9c4; }
+.nav-caret { font-size: 9px; opacity: .7; transition: opacity .15s; }
+.nav-section.nav-toggle:hover .nav-caret { opacity: 1; }
+.nav-group { animation: fadeUp .18s ease both; }
 .nav a {
   display: flex; align-items: center; gap: 11px; position: relative;
   padding: 9px 12px; border-radius: 10px; color: #c2d2e6;
@@ -516,33 +527,44 @@ input, select, textarea { font-family: inherit; color: var(--ink); }
 @media (max-width: 1000px) { .news-layout { grid-template-columns: 1fr; } }
 .newsletter { animation: fadeUp .25s ease both; }
 
-/* Masthead */
+/* Masthead — clean editorial block (navy + gold) */
 .news-masthead {
   position: relative; overflow: hidden; color: #fff; border-radius: 18px 18px 0 0;
-  padding: 26px 30px 22px;
-  background:
-    radial-gradient(560px 240px at 90% -60%, rgba(91,168,201,.5), transparent 60%),
-    linear-gradient(120deg, var(--navy-900), var(--navy) 55%, var(--teal-700));
+  padding: 30px 34px 26px;
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 22px; flex-wrap: wrap;
+  background: var(--navy-900);
+  border-bottom: 4px solid var(--sand);
   box-shadow: var(--shadow-md);
 }
-.news-masthead .nm-row { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
-.nm-kicker { font-size: 11px; font-weight: 800; letter-spacing: .28em; color: #bfe0ec; }
-.nm-issue { font-size: 12px; color: #cfe0ee; font-weight: 600; }
-.nm-title { font-size: 38px; font-weight: 800; letter-spacing: -.03em; margin: 8px 0 0; color: #fff; line-height: 1; }
-.nm-tagline { margin: 8px 0 0; color: #d3e3f1; font-size: 13.5px; max-width: 620px; }
-.nm-meta { display:flex; gap: 16px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.15); font-size: 12px; color: #bcd2e6; }
+.nm-brand { max-width: 640px; }
+.nm-kicker { font-size: 11px; font-weight: 800; letter-spacing: .28em; text-transform: uppercase; color: var(--sand); }
+.nm-title { font-size: 44px; font-weight: 800; letter-spacing: -.035em; margin: 6px 0 0; color: #fff; line-height: 1; }
+.nm-tagline { margin: 12px 0 0; color: #c7d8e8; font-size: 13.5px; max-width: 560px; line-height: 1.55; }
+.nm-side { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
+.nm-logo { width: 54px; height: 54px; display: grid; place-items: center; border: 3px solid var(--sand); color: var(--sand); border-radius: 12px; font-size: 28px; line-height: 1; }
+.nm-date { font-size: 14.5px; font-weight: 700; color: #fff; max-width: 160px; }
 
-/* Executive summary band */
-.news-summary {
-  background: #fff; border: 1px solid var(--gray-200); border-top: none; padding: 20px 30px;
-  box-shadow: var(--shadow);
-}
-.news-summary-k { font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--teal-700); margin-bottom: 8px; }
-.news-summary p { margin: 0 0 8px; font-size: 15.5px; line-height: 1.6; color: var(--ink); }
-.news-summary p:first-of-type { font-size: 16.5px; }
+/* Meta + actions strip below masthead */
+.nm-strip { display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; background: var(--navy); color: #cfe0ee; padding: 10px 30px; }
+.nm-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: #c2d5e6; }
+
+/* Feature row: lead story + Top News rail */
+.news-section-label { font-size: 11px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; color: var(--gray-500); margin: 20px 0 10px; }
+.news-feature { display: grid; grid-template-columns: 1.7fr 1fr; gap: 0; background: #fff; border: 1px solid var(--gray-200); border-top: none; box-shadow: var(--shadow); }
+@media (max-width: 760px) { .news-feature { grid-template-columns: 1fr; } }
+.news-lead-story { padding: 24px 30px; border-right: 1px solid var(--gray-100); }
+.nls-kicker { font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--teal-700); }
+.nls-title { font-size: 25px; font-weight: 800; letter-spacing: -.025em; color: var(--navy-900); margin: 6px 0 12px; line-height: 1.12; }
+.nls-body { font-size: 15px; line-height: 1.65; color: var(--gray-700); margin: 0 0 12px; }
+.news-topnews { background: var(--navy-900); color: #fff; padding: 22px 24px; }
+.ntn-h { margin: 0 0 16px; font-size: 23px; font-weight: 800; color: #fff; letter-spacing: -.015em; }
+.ntn-cat { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--sand); }
+.ntn-cat .trend-chip { text-transform: none; letter-spacing: 0; }
+.ntn-head { margin: 7px 0 0; font-size: 14px; line-height: 1.5; color: #e7eef6; font-weight: 500; }
+.ntn-div { height: 1px; background: rgba(255,255,255,.16); margin: 15px 0; }
 
 /* Section cards */
-.news-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; background: #fff; border: 1px solid var(--gray-200); border-top: none; border-radius: 0 0 18px 18px; overflow: hidden; box-shadow: var(--shadow); }
+.news-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; background: #fff; border: 1px solid var(--gray-200); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); }
 @media (max-width: 720px) { .news-grid { grid-template-columns: 1fr; } }
 .news-card { padding: 20px 24px; border-top: 1px solid var(--gray-100); border-right: 1px solid var(--gray-100); position: relative; }
 .news-card:nth-child(2n) { border-right: none; }
@@ -580,8 +602,7 @@ input, select, textarea { font-family: inherit; color: var(--ink); }
 .news-take span { display: block; font-weight: 800; font-size: 11px; letter-spacing: .04em; margin-bottom: 3px; }
 
 /* Sources */
-.news-sources { background:#fff; border:1px solid var(--gray-200); border-top:none; border-radius: 0 0 18px 18px; padding: 16px 30px 20px; margin-top: -18px; box-shadow: var(--shadow); }
-.news-grid + .news-sources { border-radius: 0; border-top: 1px solid var(--gray-100); margin-top: -1px; padding-top: 18px; }
+.news-sources { background:#fff; border:1px solid var(--gray-200); border-radius: 14px; padding: 16px 30px 20px; margin-top: 16px; box-shadow: var(--shadow); }
 .news-sources-h { font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 8px; }
 .news-sources ol { margin: 0; padding-left: 20px; columns: 2; column-gap: 28px; }
 @media (max-width: 700px) { .news-sources ol { columns: 1; } }
@@ -601,9 +622,13 @@ input, select, textarea { font-family: inherit; color: var(--ink); }
 .news-empty .cell-sub { padding: 0 24px 26px; display:block; }
 
 /* Newsletter masthead actions */
-.nm-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; position:relative; z-index:1; }
+.nm-actions { display:flex; gap:8px; flex-wrap:wrap; position:relative; z-index:1; }
 .news-act { font-size:12px; font-weight:600; color:#eaf4fb; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.22); border-radius:9px; padding:6px 12px; transition: background .12s, transform .12s; }
 .news-act:hover { background:rgba(255,255,255,.22); transform:translateY(-1px); }
+
+/* Gold footer band */
+.news-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; background: var(--sand); color: var(--navy-900); font-weight:700; font-size:12.5px; letter-spacing:.02em; padding:13px 30px; border-radius:14px; margin-top:16px; }
+
 @media print {
   .news-aside, .nm-actions, #mktGen, #mktMsg { display:none !important; }
   .news-layout { grid-template-columns:1fr !important; }
