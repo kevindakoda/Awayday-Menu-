@@ -1070,9 +1070,9 @@
   const ROLES = {
     "Procurement Admin": { label: "Procurement Admin", desc: "View and edit everything.", pages: "*" },
     "Category Manager": { label: "Category Manager", desc: "View all data, edit assigned categories.", pages: ["dashboard", "categories", "catalog", "savings", "vendors", "comparison", "tracker"] },
-    "Regional Manager": { label: "Regional Manager", desc: "Brand View for the assigned region only.", pages: ["catalog", "savings", "shops", "comparison", "dashboard"], brandOnly: true },
-    "Shop Manager": { label: "Shop Manager", desc: "Brand View for one assigned shop only.", pages: ["catalog", "savings", "shops", "comparison", "dashboard"], brandOnly: true },
-    Executive: { label: "Executive", desc: "Brand president — Brand View for their own shop.", pages: ["catalog", "savings", "shops", "comparison", "dashboard"], brandOnly: true },
+    "Regional Manager": { label: "Regional Manager", desc: "Brand View for the assigned region only.", pages: ["catalog", "categories", "savings", "shops", "comparison", "dashboard"], brandOnly: true },
+    "Shop Manager": { label: "Shop Manager", desc: "Brand View for one assigned shop only.", pages: ["catalog", "categories", "savings", "shops", "comparison", "dashboard"], brandOnly: true },
+    Executive: { label: "Executive", desc: "Brand president — Brand View for their own shop.", pages: ["catalog", "categories", "savings", "shops", "comparison", "dashboard"], brandOnly: true },
   };
 
   /* -------------------------------- CSV utils -------------------------------- */

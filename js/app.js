@@ -11,6 +11,7 @@
       section: "Brand View",
       items: [
         { id: "catalog", label: "SKU Catalog", icon: "📦", route: "#/catalog" },
+        { id: "categories", label: "Categories", icon: "🗂️", route: "#/categories" },
         { id: "savings", label: "Savings Opportunities", icon: "📉", route: "#/savings" },
         { id: "shops", label: "Shop View", icon: "🏬", route: "#/shops" },
         { id: "patterns", label: "Buying Patterns", icon: "📅", route: "#/patterns" },
@@ -25,7 +26,6 @@
       items: [
         { id: "summary", label: "Executive Summary", icon: "⭐", route: "#/summary" },
         { id: "dashboard", label: "Dashboard", icon: "📊", route: "#/dashboard" },
-        { id: "categories", label: "Categories", icon: "🗂️", route: "#/categories" },
         { id: "realization", label: "Savings Realization", icon: "🎯", route: "#/realization" },
         { id: "vendorspend", label: "Vendor Spend", icon: "🧾", route: "#/vendorspend" },
         { id: "compliance", label: "Price Compliance", icon: "⚖️", route: "#/compliance" },

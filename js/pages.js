@@ -227,7 +227,6 @@
       }
       const meta = P.CATEGORY_META[active] || { icon: "📦", color: "var(--navy)" };
       const detail = P.categoriesInGroup(active);
-      const agg = P.aggregate(P.SKUS.filter((s) => s.categoryGroup === active));
       const pills = groups.map((g) => `<a class="pill ${g.categoryName === active ? "active" : ""}" href="#/categories/${encodeURIComponent(g.categoryName)}">${g.icon} ${esc(g.categoryName)}</a>`).join("");
 
       const subCards = detail.length ? detail.map((s) => `
@@ -254,12 +253,6 @@
           <button class="btn btn-green btn-sm" id="dlCatReport" data-cat="${esc(active)}">⬇ Savings report (${esc(active)})</button>
         </div>
         <div class="pillbar">${pills}</div>
-        <div class="grid cols-4" style="margin-bottom:20px">
-          ${U.statCard({ label: "Baseline", value: fmt.money(agg.baselineSpend), accent: "navy" })}
-          ${U.statCard({ label: "Negotiated", value: fmt.money(agg.newSpend), accent: "blue" })}
-          ${U.statCard({ label: "Savings", value: fmt.money(agg.savingsOpportunity), delta: "▼ " + fmt.pct(agg.savingsPercentage), accent: "green" })}
-          ${U.statCard({ label: "SKUs", value: agg.skuCount, accent: "navy" })}
-        </div>
         <div class="grid cols-3">${subCards}</div>`;
     },
     mount() {
