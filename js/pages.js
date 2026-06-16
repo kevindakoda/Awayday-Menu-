@@ -24,6 +24,7 @@
     savingsView: "Category",
     comparePair: 0,
     shopTab: "Overview",
+    contractSearch: "",
     role: "Procurement Admin",
   });
 
@@ -267,6 +268,180 @@
       });
     },
   };
+
+  /* ========================= CONTRACT REPOSITORY ========================= */
+  // Days until a date string (YYYY-MM-DD or parseable); null if unparseable.
+  function daysUntil(dateStr) {
+    if (!dateStr) return null;
+    const d = new Date(dateStr.length <= 10 ? dateStr + "T00:00:00" : dateStr);
+    if (isNaN(+d)) return null;
+    return Math.round((d - new Date()) / 86400000);
+  }
+  function contractStatus(c) {
+    const dleft = daysUntil(c.expirationDate);
+    if (dleft == null) return { key: "none", label: "No end date", cls: "navy" };
+    if (dleft < 0) return { key: "expired", label: "Expired", cls: "red" };
+    if (dleft <= 90) return { key: "expiring", label: `Expires in ${dleft}d`, cls: "amber" };
+    return { key: "active", label: "Active", cls: "green" };
+  }
+  function contractItemsTotal(c) { return (c.items || []).length; }
+  function filteredContracts() {
+    const q = (State.contractSearch || "").trim().toLowerCase();
+    let list = (P.CONTRACTS || []).slice();
+    if (q) list = list.filter((c) => (`${c.vendorName} ${c.title} ${c.source} ${(c.items || []).map((i) => i.category + " " + i.name).join(" ")}`).toLowerCase().includes(q));
+    // Expiring soonest first; contracts with no end date sink to the bottom.
+    return list.sort((a, b) => {
+      const da = daysUntil(a.expirationDate), db = daysUntil(b.expirationDate);
+      if (da == null && db == null) return (a.vendorName || "").localeCompare(b.vendorName || "");
+      if (da == null) return 1;
+      if (db == null) return -1;
+      return da - db;
+    });
+  }
+
+  PAGES.contracts = {
+    title: "Contract Repository",
+    crumb: "Contract Repository",
+    render(params) {
+      const canEdit = State.role === "Procurement Admin";
+      const all = P.CONTRACTS || [];
+      const id = params[0] ? decodeURIComponent(params[0]) : null;
+      if (id) return contractDetail(id, canEdit);
+
+      const head = `<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div><h1>📑 Contract Repository</h1><p>Every vendor contract & rate sheet in one place — with effective dates, expirations, and the price book extracted from each.</p></div>
+          ${canEdit ? `<a class="btn btn-primary btn-sm" href="#/admin">⬆ Upload a contract</a>` : ""}
+        </div>`;
+
+      if (!all.length) {
+        return `${head}<div class="card" style="text-align:center;padding:40px 20px">
+          <div style="font-size:34px;margin-bottom:8px">📑</div>
+          <h3 style="margin:0 0 6px">No contracts yet</h3>
+          <p class="text-muted" style="max-width:460px;margin:0 auto 14px">${canEdit ? "Upload a vendor contract, rate sheet, or pricing schedule on the Admin tab. The AI reads it and builds a searchable price book here." : "A Procurement Admin uploads contracts and rate sheets here."}</p>
+          ${canEdit ? `<a class="btn btn-primary btn-sm" href="#/admin">Go to Admin → upload contract</a>` : ""}
+        </div>`;
+      }
+
+      const vendorsWithContracts = new Set(all.map((c) => (c.vendorName || "").toLowerCase())).size;
+      const totalItems = all.reduce((a, c) => a + contractItemsTotal(c), 0);
+      const expiring = all.filter((c) => contractStatus(c).key === "expiring").length;
+      const expired = all.filter((c) => contractStatus(c).key === "expired").length;
+
+      const rows = filteredContracts().map((c) => {
+        const st = contractStatus(c);
+        const m = P.matchContractToSkus(c);
+        return `<tr class="row-link" data-contract="${esc(c.id)}">
+          <td><span class="cell-strong">${esc(c.vendorName || "—")}</span><div class="cell-sub">${esc(c.title || "Untitled")}</div></td>
+          <td>${esc(c.effectiveDate || "—")}</td>
+          <td>${esc(c.expirationDate || "—")}</td>
+          <td><span class="badge ${st.cls}">${esc(st.label)}</span></td>
+          <td class="num">${fmt.num(contractItemsTotal(c))}</td>
+          <td class="num ${m.totalSavings > 0 ? "text-green cell-strong" : "cell-sub"}">${m.totalSavings > 0 ? fmt.money(m.totalSavings) : "—"}</td>
+          <td class="cell-sub">${esc(c.source || "—")}</td>
+        </tr>`;
+      }).join("");
+
+      return `${head}
+        <div class="grid cols-4" style="margin-bottom:16px">
+          ${U.statCard({ label: "Contracts", value: fmt.num(all.length), accent: "navy", icon: "📑", iconBg: "var(--navy-50)" })}
+          ${U.statCard({ label: "Vendors Covered", value: fmt.num(vendorsWithContracts), accent: "blue", icon: "🏷️", iconBg: "var(--blue-bg)" })}
+          ${U.statCard({ label: "Priced Line Items", value: fmt.num(totalItems), accent: "navy", icon: "🧾", iconBg: "var(--navy-50)" })}
+          ${U.statCard({ label: "Expiring / Expired", value: `${expiring} / ${expired}`, delta: "within 90 days", deltaClass: "text-muted", accent: "amber", icon: "⏳", iconBg: "var(--amber-bg)" })}
+        </div>
+        <div class="toolbar">
+          <div class="search"><span class="si">🔍</span><input type="text" id="contractSearch" placeholder="Search vendor, title, category…" value="${esc(State.contractSearch || "")}"></div>
+        </div>
+        <div class="table-wrap">
+          <table class="data" style="min-width:760px"><thead><tr>
+            <th>Vendor / Contract</th><th>Effective</th><th>Expiration</th><th>Status</th><th class="num">Items</th><th class="num">Matched savings</th><th>Source</th>
+          </tr></thead><tbody>${rows || `<tr><td colspan="7"><div class="empty">No contracts match your search.</div></td></tr>`}</tbody></table>
+        </div>`;
+    },
+    mount(params) {
+      const id = params[0] ? decodeURIComponent(params[0]) : null;
+      if (id) { mountContractDetail(id); return; }
+      const search = document.getElementById("contractSearch");
+      if (search) {
+        search.addEventListener("input", (e) => { State.contractSearch = e.target.value; debounceRender(); });
+        search.focus();
+        const v = search.value; search.value = ""; search.value = v;
+      }
+      document.querySelectorAll("tr[data-contract]").forEach((tr) => tr.addEventListener("click", () => {
+        location.hash = "#/contracts/" + encodeURIComponent(tr.getAttribute("data-contract"));
+      }));
+    },
+  };
+
+  function contractDetail(id, canEdit) {
+    const c = (P.CONTRACTS || []).find((x) => x.id === id);
+    if (!c) return `<div class="page-head"><h1>Contract not found</h1></div><div class="empty"><a href="#/contracts">← Back to repository</a></div>`;
+    const st = contractStatus(c);
+    const m = P.matchContractToSkus(c);
+
+    // Price book grouped by category.
+    const byCat = {};
+    (c.items || []).forEach((it) => { (byCat[it.category || "Other"] = byCat[it.category || "Other"] || []).push(it); });
+    const bookBlocks = Object.keys(byCat).sort().map((cat) => {
+      const rows = byCat[cat].map((it) => `<tr>
+        <td><span class="cell-strong">${esc(it.name)}</span>${it.description ? `<div class="cell-sub">${esc(it.description)}</div>` : ""}</td>
+        <td>${esc(it.uom || "Each")}${it.packSize ? `<div class="cell-sub">${esc(it.packSize)}</div>` : ""}</td>
+        <td class="num cell-strong">${fmt.money(it.unitPrice, 2)}</td>
+        <td class="cell-sub">${esc(it.notes || "")}</td>
+      </tr>`).join("");
+      return `<div style="margin-top:10px"><div class="cell-strong" style="font-size:12.5px;margin-bottom:4px">${esc(cat)} <span class="cell-sub">(${byCat[cat].length})</span></div>
+        <div class="table-wrap" style="border:none"><table class="data"><thead><tr><th>Item</th><th>UoM</th><th class="num">Contract price/each</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    }).join("");
+
+    const matchRows = m.matches.slice(0, 25).map((x) => `<tr>
+      <td><span class="cell-strong">${esc(x.sku.productName)}</span><div class="cell-sub">${esc(x.sku.shop)} · ${esc(x.sku.sku || x.sku.id)}</div></td>
+      <td class="num"><span class="price-old">${fmt.money(x.currentEach, 2)}</span></td>
+      <td class="num text-green cell-strong">${fmt.money(x.contractEach, 2)}</td>
+      <td class="num ${x.annualSavings > 0 ? "text-green" : "text-red"}">${fmt.money(x.annualSavings)}</td>
+    </tr>`).join("");
+
+    const shopOpts = (P.scopedShops ? P.scopedShops() : (P.SHOPS || [])).map((s) => `<option value="${esc(s.shopName)}">${esc(s.shopName)}</option>`).join("");
+    const adminBar = canEdit ? `<div class="card" style="margin-bottom:16px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <span class="cell-strong">Publish this price book to a shop's catalog:</span>
+        <select id="publishShop" class="approve-select" style="max-width:240px"><option value="">Select shop…</option>${shopOpts}</select>
+        <button class="btn btn-primary btn-sm" id="publishBtn">Publish → catalog</button>
+        <button class="btn btn-outline btn-sm" id="deleteContract" style="margin-left:auto;color:var(--red);border-color:#f2c4c4">🗑 Delete contract</button>
+      </div><div id="publishMsg" class="cell-sub" style="margin-top:8px"></div></div>` : "";
+
+    return `<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div><div class="cell-sub"><a href="#/contracts">📑 Contract Repository</a> / ${esc(c.vendorName || "—")}</div>
+          <h1 style="margin-top:4px">${esc(c.title || c.vendorName || "Contract")}</h1>
+          <p>${esc(c.vendorName || "")} · ${esc(c.source || "uploaded")} · <span class="badge ${st.cls}">${esc(st.label)}</span></p></div>
+      </div>
+      <div class="grid cols-4" style="margin-bottom:16px">
+        ${U.statCard({ label: "Effective", value: c.effectiveDate || "—", accent: "navy" })}
+        ${U.statCard({ label: "Expiration", value: c.expirationDate || "—", accent: "amber" })}
+        ${U.statCard({ label: "Priced Items", value: fmt.num(contractItemsTotal(c)), accent: "navy" })}
+        ${U.statCard({ label: "Matched Savings", value: m.totalSavings > 0 ? fmt.money(m.totalSavings) : "—", delta: m.matchedSkus + " SKUs matched", deltaClass: "text-muted", accent: "green" })}
+      </div>
+      ${adminBar}
+      <div class="card" style="margin-bottom:16px"><h3 class="card-title">📒 Price book</h3>${bookBlocks || `<div class="cell-sub">No priced line items were extracted from this contract.</div>`}</div>
+      ${m.matches.length ? `<div class="card"><h3 class="card-title">🎯 Savings vs. current catalog prices <span class="cell-sub">(top ${Math.min(25, m.matches.length)})</span></h3>
+        <div class="table-wrap" style="border:none"><table class="data"><thead><tr><th>SKU</th><th class="num">Current/each</th><th class="num">Contract/each</th><th class="num">Annual savings</th></tr></thead><tbody>${matchRows}</tbody></table></div></div>` : ""}`;
+  }
+
+  function mountContractDetail(id) {
+    const pub = document.getElementById("publishBtn");
+    if (pub) pub.addEventListener("click", async () => {
+      const shop = (document.getElementById("publishShop") || {}).value || "";
+      const msg = document.getElementById("publishMsg");
+      if (!shop) { if (msg) msg.innerHTML = `<span class="text-amber">Pick a shop first.</span>`; return; }
+      const res = P.publishContractToCatalog(id, shop);
+      if (window.Store && window.Store.available()) { try { await window.Store.pushAll(); } catch (_) { /* best effort */ } }
+      if (msg) msg.innerHTML = `<span class="text-green">✅ Published ${res.added || 0} item(s) to <b>${esc(shop)}</b>'s catalog.</span>`;
+    });
+    const del = document.getElementById("deleteContract");
+    if (del) del.addEventListener("click", async () => {
+      if (!confirm("Delete this contract and its price book? This cannot be undone.")) return;
+      P.deleteContract(id);
+      if (window.Store && window.Store.available()) { try { await window.Store.deleteContract(id); } catch (_) { /* best effort */ } }
+      location.hash = "#/contracts";
+    });
+  }
 
   /* ============================== SKU CATALOG ============================== */
   function filteredSkus() {
