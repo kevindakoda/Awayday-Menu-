@@ -30,6 +30,7 @@
         { id: "vendorspend", label: "Vendor Spend", icon: "🧾", route: "#/vendorspend" },
         { id: "compliance", label: "Price Compliance", icon: "⚖️", route: "#/compliance" },
         { id: "vendors", label: "Vendors", icon: "🏷️", route: "#/vendors" },
+        { id: "contracts", label: "Contract Repository", icon: "📑", route: "#/contracts" },
         { id: "uom", label: "UoM Converter", icon: "📐", route: "#/uom" },
         { id: "tracker", label: "Implementation Tracker", icon: "✅", route: "#/tracker" },
         { id: "quality", label: "Data Quality", icon: "🧹", route: "#/quality" },
@@ -41,7 +42,7 @@
   ];
 
   // page id -> permission key (some nav items map to same permission group)
-  const PERM_KEY = { summary: "dashboard", dashboard: "dashboard", categories: "categories", catalog: "catalog", savings: "savings", realization: "savings", shops: "shops", patterns: "catalog", vendorspend: "savings", compliance: "savings", vendors: "vendors", comparison: "comparison", uom: "catalog", tracker: "tracker", ask: "catalog", intel: "savings", market: "dashboard", quality: "admin", ai: "admin", security: "security", admin: "admin" };
+  const PERM_KEY = { summary: "dashboard", dashboard: "dashboard", categories: "categories", catalog: "catalog", savings: "savings", realization: "savings", shops: "shops", patterns: "catalog", vendorspend: "savings", compliance: "savings", vendors: "vendors", contracts: "vendors", comparison: "comparison", uom: "catalog", tracker: "tracker", ask: "catalog", intel: "savings", market: "dashboard", quality: "admin", ai: "admin", security: "security", admin: "admin" };
 
   // Page ids that belong to the Brand View group (derived from NAV_GROUPS).
   const BRAND_PAGES = new Set(
