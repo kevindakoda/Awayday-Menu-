@@ -735,3 +735,35 @@ input, select, textarea { font-family: inherit; color: var(--ink); }
 .login-points .lp-dot { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; color: #fff; flex-shrink: 0;
   background: linear-gradient(135deg, var(--teal), var(--sage)); }
 .login-shell .login-card { margin: 0; }
+
+/* =====================================================================
+   Accessibility layer
+   - Keyboard focus indicators for controls that had none (buttons, links,
+     nav items, pills, tabs, the mobile nav toggle). Form fields already
+     show a teal ring on focus, so they are intentionally left as-is.
+     :focus-visible avoids a lingering ring after a mouse click.
+   - Honors the OS "reduce motion" setting (WCAG 2.3.3).
+   ===================================================================== */
+a:focus-visible,
+button:focus-visible,
+.btn:focus-visible,
+.pill:focus-visible,
+.tabs button:focus-visible,
+.nav-toggle:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.sidebar a:focus-visible,
+.nav-toggle:focus-visible { outline-color: #7fd4e0; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
