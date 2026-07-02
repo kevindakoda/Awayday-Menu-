@@ -180,25 +180,28 @@
   }
 
   function wireShell() {
+    // Assign via on* properties (not addEventListener): wireShell re-runs on
+    // every sidebar re-render, and the topbar input persists across those, so
+    // addEventListener would stack duplicate handlers.
     const logout = document.getElementById("logoutBtn");
-    if (logout) logout.addEventListener("click", () => {
+    if (logout) logout.onclick = () => {
       if (window.Auth && window.Auth.logout) window.Auth.logout();
-    });
+    };
     const gs = document.getElementById("globalSearch");
-    if (gs) gs.addEventListener("keyup", (e) => {
+    if (gs) gs.onkeyup = (e) => {
       if (e.key === "Enter") {
         State.catalog.search = e.target.value;
         location.hash = "#/catalog";
       }
-    });
-    document.querySelectorAll(".nav-toggle").forEach((h) => h.addEventListener("click", () => {
+    };
+    document.querySelectorAll(".nav-toggle").forEach((h) => { h.onclick = () => {
       const s = h.getAttribute("data-section");
       // If the section is currently open, we're collapsing it (store true = collapsed).
       navCollapsed[s] = h.classList.contains("open");
       try { localStorage.setItem("psp_nav_collapsed", JSON.stringify(navCollapsed)); } catch (_) { /* ignore */ }
       const sb = document.getElementById("sidebar");
       if (sb) { sb.innerHTML = renderSidebar(); wireShell(); }
-    }));
+    }; });
   }
 
   // Decide a brand user's data scope from their role + assigned shop/region.
