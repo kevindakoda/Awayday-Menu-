@@ -23,9 +23,14 @@
   </div>
 
   <script src="config.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <!-- Pinned versions (an unpinned @2 broke reproducibility) with unpkg
+       fallback if jsdelivr/cdnjs is unreachable from the user's network. -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.0/dist/umd/supabase.js"
+          onerror="this.onerror=null;var s=document.createElement('script');s.src='https://unpkg.com/@supabase/supabase-js@2.110.0/dist/umd/supabase.js';document.head.appendChild(s)"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
+          onerror="this.onerror=null;var s=document.createElement('script');s.src='https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js';document.head.appendChild(s)"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"
+          onerror="this.onerror=null;var s=document.createElement('script');s.src='https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js';document.head.appendChild(s)"></script>
   <script src="js/data.js"></script>
   <script src="js/uom.js"></script>
   <script src="js/ai.js"></script>
@@ -35,5 +40,22 @@
   <script src="js/pages.js"></script>
   <script src="js/app.js"></script>
   <script src="js/auth.js"></script>
+  <script>
+  /* Boot watchdog: if neither the login screen nor the app has appeared
+     after 9s, something upstream failed (CDN, network, script error).
+     Never leave the user staring at a blank page. Inline + inline-styled on
+     purpose: it must work even when every external resource failed. */
+  setTimeout(function () {
+    var l = document.getElementById("loginScreen"), a = document.getElementById("appRoot");
+    var shown = (l && l.style.display !== "none" && l.innerHTML.length > 50) || (a && a.style.display !== "none");
+    if (shown || document.getElementById("bootFail")) return;
+    document.body.insertAdjacentHTML("beforeend",
+      '<div id="bootFail" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0e2840;color:#fff;font-family:system-ui,sans-serif;z-index:9999;padding:24px;text-align:center">' +
+      '<div style="max-width:420px"><div style="font-size:40px">📡</div>' +
+      '<h2 style="margin:12px 0 8px;font-size:20px">The portal couldn\'t start</h2>' +
+      '<p style="margin:0 0 16px;color:#c7d8e8;font-size:14px;line-height:1.5">A required script or service didn\'t load — usually a network hiccup or a blocked CDN. Check your connection, then retry. If it persists, try a hard refresh (Ctrl/Cmd+Shift+R).</p>' +
+      '<button onclick="location.reload()" style="background:#D9A066;border:none;color:#0e2840;font-weight:700;font-size:14px;padding:11px 26px;border-radius:999px;cursor:pointer">↻ Retry</button></div></div>');
+  }, 9000);
+  </script>
 </body>
 </html>

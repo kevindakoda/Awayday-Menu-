@@ -71,6 +71,8 @@
   let signupMode = false;
 
   function showLogin(msg) {
+    // If the boot watchdog overlay already fired, clear it — we recovered.
+    const bf = $("bootFail"); if (bf) bf.remove();
     const root = $("loginScreen");
     const app = $("appRoot");
     if (app) app.style.display = "none";
@@ -81,7 +83,7 @@
     if (toggle) toggle.addEventListener("click", (e) => { e.preventDefault(); signupMode = !signupMode; showLogin(); });
     const email = $("loginEmail");
     if (email) email.focus();
-    if (window.ShaderHero) { const c = $("loginShaderCanvas"); if (c) window.ShaderHero.mount(c); }
+    try { if (window.ShaderHero) { const c = $("loginShaderCanvas"); if (c) window.ShaderHero.mount(c); } } catch (_) { /* decorative only */ }
   }
 
   function setMsg(text, kind) {
@@ -246,15 +248,31 @@
     if (first) first.focus();
   }
 
+  const withTimeout = (p, ms, label) => Promise.race([
+    p, new Promise((_, rej) => setTimeout(() => rej(new Error(label || "Timed out")), ms)),
+  ]);
+
   async function boot() {
+    // The supabase-js script may still be arriving (e.g. via the unpkg
+    // fallback after a jsdelivr failure) — poll briefly before giving up.
+    for (let waited = 0; !window.supabase && waited < 8000; waited += 250) {
+      await new Promise((r) => setTimeout(r, 250));
+    }
     const client = sb();
-    if (!client) { showLogin("Unable to load authentication. Please retry."); return; }
-    const { data } = await client.auth.getSession();
-    if (data && data.session) {
-      if (inviteLanding) { showSetPassword(data.session); return; }
-      await onAuthed(data.session);
-    } else {
-      showLogin();
+    if (!client) { showLogin("⚠️ Couldn't load the authentication service — check your connection and retry."); return; }
+    try {
+      const { data } = await withTimeout(client.auth.getSession(), 12000, "Session check timed out");
+      if (data && data.session) {
+        if (inviteLanding) { showSetPassword(data.session); return; }
+        await onAuthed(data.session);
+      } else {
+        showLogin();
+      }
+    } catch (e) {
+      // Never strand the user on a blank page: fall back to a fresh sign-in.
+      console.error("Auth boot failed:", e);
+      try { localStorage.removeItem("sb-" + (cfg.SUPABASE_URL || "").replace(/^https?:\/\//, "").split(".")[0] + "-auth-token"); } catch (_) { /* ignore */ }
+      showLogin("⚠️ Couldn't restore your previous session — please sign in again.");
     }
   }
 
