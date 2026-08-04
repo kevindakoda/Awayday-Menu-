@@ -162,21 +162,6 @@
     return res.mapping || {};
   }
 
-  // Generate this week's market-intelligence briefing (separate edge function;
-  // uses Claude web search). Returns { text, sources, asOf }.
-  async function market() {
-    const c = client();
-    if (!c) throw new Error("You must be signed in to generate market insights.");
-    const { data, error } = await c.functions.invoke("market-insights", { body: {} });
-    if (error) {
-      let msg = error.message || "Market insights request failed.";
-      try { const b = await error.context.json(); if (b && b.error) msg = b.error; } catch (_) { /* ignore */ }
-      throw new Error(msg);
-    }
-    if (data && data.error) throw new Error(data.error);
-    return data || {};
-  }
-
   function toBase64(file) {
     return new Promise((resolve, reject) => {
       const r = new FileReader();
@@ -202,5 +187,5 @@
     });
   }
 
-  window.AI = { categorize, ocr, ocrImage, contractExtract, analyze, ask, snapshot, extractSpend, mapColumns, market, categorizeLocal, taxonomy, getProvider, setProvider, providers };
+  window.AI = { categorize, ocr, ocrImage, contractExtract, analyze, ask, snapshot, extractSpend, mapColumns, categorizeLocal, taxonomy, getProvider, setProvider, providers };
 })();

@@ -113,12 +113,11 @@
   async function loadAll() {
     const c = client();
     if (!c) return { loaded: false };
-    const [brandsRes, skusRes, contractsRes, apRes, marketRes, snapRes, vendorRes] = await Promise.all([
+    const [brandsRes, skusRes, contractsRes, apRes, snapRes, vendorRes] = await Promise.all([
       c.from("procurement_brands").select("*"),
       c.from("procurement_skus").select("*"),
       c.from("procurement_contracts").select("*"),
       c.from("procurement_ap_spend").select("*"),
-      c.from("market_insights").select("*").order("week_of", { ascending: false }).limit(12),
       c.from("savings_snapshots").select("*").order("snapshot_date", { ascending: true }).limit(120),
       c.from("procurement_vendors").select("*"),
     ]);
@@ -137,14 +136,6 @@
     if (P.AP) {
       P.apClear();
       if (!apRes.error) (apRes.data || []).forEach((r) => P.AP.push(rowToAp(r)));
-    }
-    // Market insights (optional table).
-    if (P.MARKET) {
-      P.MARKET.length = 0;
-      if (!marketRes.error) (marketRes.data || []).forEach((r) => P.MARKET.push({
-        id: r.id, weekOf: r.week_of, asOf: r.as_of, text: r.text || "",
-        sources: Array.isArray(r.sources) ? r.sources : [],
-      }));
     }
     // Savings snapshots (optional table).
     if (P.SNAPSHOTS) {
@@ -226,22 +217,6 @@
     if (P.AP && P.AP.length) await insertChunked("procurement_ap_spend", P.AP.map(apToRow));
   }
 
-  // Save (upsert) one weekly market briefing and mirror it into P.MARKET.
-  async function saveMarket(brief) {
-    const c = client();
-    if (!c) return;
-    const week = P.weekOf(brief.asOf);
-    const row = { id: "MI-" + week, week_of: week, as_of: brief.asOf || new Date().toISOString(), text: brief.text || "", sources: brief.sources || [] };
-    const res = await c.from("market_insights").upsert(row, { onConflict: "id" });
-    if (res.error) throw res.error;
-    if (P.MARKET) {
-      const entry = { id: row.id, weekOf: week, asOf: row.as_of, text: row.text, sources: row.sources };
-      const i = P.MARKET.findIndex((m) => m.id === row.id);
-      if (i >= 0) P.MARKET[i] = entry; else P.MARKET.unshift(entry);
-      P.MARKET.sort((a, b) => (a.weekOf < b.weekOf ? 1 : -1));
-    }
-  }
-
   // Capture today's savings funnel as a snapshot (idempotent per day).
   async function saveSnapshot() {
     const c = client();
@@ -279,5 +254,5 @@
     if (res.error) throw res.error;
   }
 
-  window.Store = { available, loadAll, pushAll, pushAp, saveMarket, saveSnapshot, saveVendor, saveVendors, deleteVendor, upsertSku, deleteSku, upsertContract, deleteContract };
+  window.Store = { available, loadAll, pushAll, pushAp, saveSnapshot, saveVendor, saveVendors, deleteVendor, upsertSku, deleteSku, upsertContract, deleteContract };
 })();

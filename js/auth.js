@@ -26,7 +26,7 @@
 
   function loginMarkup(msg, signup) {
     const points = [
-      "AI savings, price compliance & weekly market insights",
+      "AI savings & price compliance at a glance",
       "Vendors, contracts & invoiced spend in one command center",
       "Built for rental presidents to see expenses at a glance",
     ];

@@ -18,7 +18,6 @@
         { id: "comparison", label: "Product Comparison", icon: "🔄", route: "#/comparison" },
         { id: "ask", label: "Ask AI", icon: "💬", route: "#/ask" },
         { id: "intel", label: "Risk & Intelligence", icon: "📊", route: "#/intel" },
-        { id: "market", label: "Market Insights", icon: "🌐", route: "#/market" },
       ],
     },
     {
@@ -42,7 +41,7 @@
   ];
 
   // page id -> permission key (some nav items map to same permission group)
-  const PERM_KEY = { summary: "dashboard", dashboard: "dashboard", categories: "categories", catalog: "catalog", savings: "savings", realization: "savings", shops: "shops", patterns: "catalog", vendorspend: "savings", compliance: "savings", vendors: "vendors", contracts: "vendors", comparison: "comparison", uom: "catalog", tracker: "tracker", ask: "catalog", intel: "savings", market: "dashboard", quality: "admin", ai: "admin", security: "security", admin: "admin" };
+  const PERM_KEY = { summary: "dashboard", dashboard: "dashboard", categories: "categories", catalog: "catalog", savings: "savings", realization: "savings", shops: "shops", patterns: "catalog", vendorspend: "savings", compliance: "savings", vendors: "vendors", contracts: "vendors", comparison: "comparison", uom: "catalog", tracker: "tracker", ask: "catalog", intel: "savings", quality: "admin", ai: "admin", security: "security", admin: "admin" };
 
   // Page ids that belong to the Brand View group (derived from NAV_GROUPS).
   const BRAND_PAGES = new Set(

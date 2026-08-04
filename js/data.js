@@ -1064,15 +1064,13 @@
 
   /* ------------------------------ Roles config ------------------------------ */
   // brandOnly roles see ONLY the Brand View group; the entire Procurement
-  // section is hidden from them. "dashboard" in their pages only unlocks the
-  // Market Insights brand page (Executive Summary/Dashboard are gated out by
-  // the brandOnly group check in app.js).
+  // section is hidden from them.
   const ROLES = {
     "Procurement Admin": { label: "Procurement Admin", desc: "View and edit everything.", pages: "*" },
     "Category Manager": { label: "Category Manager", desc: "View all data, edit assigned categories.", pages: ["dashboard", "categories", "catalog", "savings", "vendors", "comparison", "tracker"] },
-    "Regional Manager": { label: "Regional Manager", desc: "Brand View for the assigned region only.", pages: ["catalog", "categories", "savings", "shops", "comparison", "dashboard"], brandOnly: true },
-    "Shop Manager": { label: "Shop Manager", desc: "Brand View for one assigned shop only.", pages: ["catalog", "categories", "savings", "shops", "comparison", "dashboard"], brandOnly: true },
-    Executive: { label: "Executive", desc: "Brand president — Brand View for their own shop.", pages: ["catalog", "categories", "savings", "shops", "comparison", "dashboard"], brandOnly: true },
+    "Regional Manager": { label: "Regional Manager", desc: "Brand View for the assigned region only.", pages: ["catalog", "categories", "savings", "shops", "comparison"], brandOnly: true },
+    "Shop Manager": { label: "Shop Manager", desc: "Brand View for one assigned shop only.", pages: ["catalog", "categories", "savings", "shops", "comparison"], brandOnly: true },
+    Executive: { label: "Executive", desc: "Brand president — Brand View for their own shop.", pages: ["catalog", "categories", "savings", "shops", "comparison"], brandOnly: true },
   };
 
   /* -------------------------------- CSV utils -------------------------------- */
@@ -1503,16 +1501,6 @@
     };
   }
 
-  // Weekly market-intelligence briefings (populated from the database).
-  const MARKET = [];
-  // Monday (ISO week start) of the date as YYYY-MM-DD — the briefing's week key.
-  function weekOf(d) {
-    const dt = d ? new Date(d) : new Date();
-    const day = (dt.getDay() + 6) % 7; // 0 = Monday
-    dt.setDate(dt.getDate() - day);
-    return dt.toISOString().slice(0, 10);
-  }
-
   // Aggregate AP into calendar-month seasonality (Jan–Dec across all years) and
   // a chronological trend, optionally filtered to one shop.
   function apSummary(shop) {
@@ -1673,10 +1661,8 @@
     remapApShop,
     fuzzyShop,
     apClear,
-    MARKET,
     SNAPSHOTS,
     savingsFunnel,
-    weekOf,
     importContract,
     deleteContract,
     publishContractToCatalog,
